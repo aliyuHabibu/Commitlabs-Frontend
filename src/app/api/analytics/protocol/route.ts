@@ -6,11 +6,7 @@ import {
   toCorsErrorResponse,
   type CorsRoutePolicy,
 } from '@/lib/backend/cors';
-import {
-  BackendError,
-  normalizeBackendError,
-  toBackendErrorResponse,
-} from '@/lib/backend/errors';
+import { BackendError, normalizeBackendError, toBackendErrorResponse } from '@/lib/backend/errors';
 import { isFeatureEnabled } from '@/lib/backend/config';
 import { getMockData } from '@/lib/backend/mockDb';
 import { methodNotAllowed } from '@/lib/backend/apiResponse';
@@ -19,11 +15,24 @@ interface ProtocolAnalyticsResponse {
   totalCommitments: number;
   activeCommitments: number;
   settledCommitments: number;
-  totalValueCommitted: string;
-  feesEarned: string;
+  violatedCommitments: number;
+  totalValueLocked: string;
+  totalFeesEarned: string;
   averageComplianceScore: number;
-  violationCount: number;
-  attestationCount: number;
+  totalViolations: number;
+  uniqueOwners: number;
+  snapshot: {
+    generatedAt: string;
+    window: 'protocol-lifetime';
+    source: 'mock' | 'chain';
+    rejectedRecords: number;
+  };
+  invariants: {
+    statusTotalsMatch: true;
+    nonNegativeTotals: true;
+    complianceScoreBounded: true;
+  };
+  attestationCount?: number;
 }
 
 const ANALYTICS_PROTOCOL_CORS_POLICY = {
@@ -38,67 +47,123 @@ function parseNumeric(value: string | number | undefined | null): number {
   }
 
   if (typeof value === 'string') {
-    const normalized = value.replace(/[$,%\s]/g, '').replace(/,/g, '');
-    const parsed = Number(normalized);
+    const normalized = value.trim();
+    if (normalized === '') {
+      return 0;
+    }
+
+    const cleaned = normalized.replace(/[$,%\s]/g, '').replace(/,/g, '');
+    const parsed = Number(cleaned);
     if (Number.isFinite(parsed)) {
       return parsed;
     }
   }
 
-  return 0;
+  return Number.NaN;
 }
 
-function sumNumericField(
-  values: Array<Record<string, unknown>>,
-  field: 'amount' | 'feeEarned',
-): string {
-  const total = values.reduce((acc, value) => {
-    const numericValue = parseNumeric(value[field] as string | number | undefined | null);
-    return acc + numericValue;
-  }, 0);
-
-  return total.toFixed(2);
-}
-
-function buildProtocolAnalytics(
-  commitments: Array<Record<string, unknown>>,
-  attestations: Array<Record<string, unknown>>,
+export function buildProtocolAnalytics(
+  commitments: Array<Record<string, unknown>> = [],
+  sourceOrAttestations?: 'mock' | 'chain' | Array<Record<string, unknown>>,
+  maybeAttestations: Array<Record<string, unknown>> = [],
 ): ProtocolAnalyticsResponse {
-  const totalCommitments = commitments.length;
-  const activeCommitments = commitments.filter((commitment) => {
+  const attestationSet = Array.isArray(sourceOrAttestations)
+    ? sourceOrAttestations
+    : maybeAttestations;
+  const source = Array.isArray(sourceOrAttestations) ? 'mock' : (sourceOrAttestations ?? 'mock');
+
+  let validCommitments = 0;
+  let activeCommitments = 0;
+  let settledCommitments = 0;
+  let violatedCommitments = 0;
+  let totalValueLocked = 0;
+  let totalFeesEarned = 0;
+  let totalViolations = 0;
+  let complianceScoreTotal = 0;
+  let rejectedRecords = 0;
+  const ownerSet = new Set<string>();
+
+  for (const commitment of commitments) {
+    const amount = parseNumeric(commitment.amount as string | number | undefined | null);
+    const feeEarned = parseNumeric(commitment.feeEarned as string | number | undefined | null);
+    const complianceScore = Number(commitment.complianceScore ?? 0);
+    const violationCount = Number(commitment.violationCount ?? 0);
+    const owner = String(commitment.ownerAddress ?? '').trim();
+
+    if (!Number.isFinite(amount) || amount < 0) {
+      rejectedRecords += 1;
+      continue;
+    }
+
+    if (!Number.isFinite(feeEarned) || feeEarned < 0) {
+      rejectedRecords += 1;
+      continue;
+    }
+
+    if (!Number.isFinite(complianceScore) || complianceScore < 0 || complianceScore > 100) {
+      rejectedRecords += 1;
+      continue;
+    }
+
+    if (
+      !Number.isFinite(violationCount) ||
+      violationCount < 0 ||
+      !Number.isInteger(violationCount)
+    ) {
+      rejectedRecords += 1;
+      continue;
+    }
+
+    validCommitments += 1;
+    totalValueLocked += amount;
+    totalFeesEarned += feeEarned;
+    totalViolations += violationCount;
+    complianceScoreTotal += complianceScore;
+
     const status = String(commitment.status ?? '').toLowerCase();
-    return status === 'active' || status === 'created';
-  }).length;
-  const settledCommitments = commitments.filter((commitment) => {
-    const status = String(commitment.status ?? '').toLowerCase();
-    return status === 'settled';
-  }).length;
-  const totalValueCommitted = sumNumericField(commitments, 'amount');
-  const feesEarned = sumNumericField(commitments, 'feeEarned');
+    if (status === 'active') {
+      activeCommitments += 1;
+    }
+    if (status === 'settled') {
+      settledCommitments += 1;
+    }
+    if (status === 'violated') {
+      violatedCommitments += 1;
+    }
+
+    if (owner) {
+      ownerSet.add(owner);
+    }
+  }
+
   const averageComplianceScore =
-    totalCommitments === 0
-      ? 0
-      : Number(
-          (
-            commitments.reduce((acc, commitment) => {
-              const score = Number(commitment.complianceScore ?? 0);
-              return acc + score;
-            }, 0) / totalCommitments
-          ).toFixed(2),
-        );
-  const violationCount = commitments.reduce((acc, commitment) => {
-    return acc + Number(commitment.violationCount ?? 0);
-  }, 0);
+    validCommitments === 0 ? 0 : Number((complianceScoreTotal / validCommitments).toFixed(2));
+
+  const invariants = {
+    statusTotalsMatch:
+      activeCommitments + settledCommitments + violatedCommitments <= validCommitments,
+    nonNegativeTotals: totalValueLocked >= 0 && totalFeesEarned >= 0 && totalViolations >= 0,
+    complianceScoreBounded: true,
+  } satisfies ProtocolAnalyticsResponse['invariants'];
 
   return {
-    totalCommitments,
+    totalCommitments: validCommitments,
     activeCommitments,
     settledCommitments,
-    totalValueCommitted,
-    feesEarned,
+    violatedCommitments,
+    totalValueLocked: totalValueLocked.toFixed(2),
+    totalFeesEarned: totalFeesEarned.toFixed(2),
     averageComplianceScore,
-    violationCount,
-    attestationCount: attestations.length,
+    totalViolations,
+    uniqueOwners: ownerSet.size,
+    snapshot: {
+      generatedAt: new Date().toISOString(),
+      window: 'protocol-lifetime',
+      source,
+      rejectedRecords,
+    },
+    invariants,
+    attestationCount: attestationSet.length,
   };
 }
 
@@ -109,12 +174,12 @@ export async function GET(req: NextRequest) {
     return toCorsErrorResponse(error);
   }
 
-  if (!isFeatureEnabled('analyticsUser')) {
+  if (!isFeatureEnabled('analyticsProtocol')) {
     const error = new BackendError({
       code: 'NOT_FOUND',
       message: 'Protocol analytics endpoint is disabled.',
       status: 404,
-      details: { feature: 'analyticsUser' },
+      details: { feature: 'analyticsProtocol' },
     });
 
     return applyCorsPolicy(
@@ -130,14 +195,11 @@ export async function GET(req: NextRequest) {
     const data = await getMockData();
     const analytics = buildProtocolAnalytics(
       (data.commitments ?? []) as Array<Record<string, unknown>>,
+      'mock',
       (data.attestations ?? []) as Array<Record<string, unknown>>,
     );
 
-    return applyCorsPolicy(
-      req,
-      NextResponse.json(analytics),
-      ANALYTICS_PROTOCOL_CORS_POLICY,
-    );
+    return applyCorsPolicy(req, NextResponse.json(analytics), ANALYTICS_PROTOCOL_CORS_POLICY);
   } catch (error) {
     const normalized = normalizeBackendError(error, {
       code: 'INTERNAL_ERROR',
