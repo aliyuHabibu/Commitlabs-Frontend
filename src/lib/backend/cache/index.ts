@@ -25,14 +25,10 @@ export interface CacheAdapter {
 
 export const CacheKey = {
   commitment: (id: string) => `commitlabs:commitment:${id}`,
-  userCommitments: (ownerAddress: string) =>
-    `commitlabs:user-commitments:${ownerAddress}`,
-  marketplaceListings: (queryHash: string) =>
-    `commitlabs:marketplace:listings:${queryHash}`,
-  marketplaceStats: () => "commitlabs:marketplace:stats",
-  commitmentSearch: (queryHash: string) =>
-    `commitlabs:commitment-search:${queryHash}`,
-  marketplaceStats: () => "commitlabs:marketplace:stats",
+  userCommitments: (ownerAddress: string) => `commitlabs:user-commitments:${ownerAddress}`,
+  marketplaceListings: (queryHash: string) => `commitlabs:marketplace:listings:${queryHash}`,
+  marketplaceStats: () => 'commitlabs:marketplace:stats',
+  commitmentSearch: (queryHash: string) => `commitlabs:commitment-search:${queryHash}`,
 } as const;
 
 /** TTL in seconds — keep short so stale chain data doesn't linger. */

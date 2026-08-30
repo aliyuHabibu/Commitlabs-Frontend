@@ -1,71 +1,105 @@
-import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, expect, it, beforeEach, vi } from 'vitest'
-import { AppShellLayout } from './AppShellLayout'
+/** @vitest-environment happy-dom */
 
-const mockRefresh = vi.fn()
-const mockPathname = '/marketplace'
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { AppShellLayout } from './AppShellLayout';
+import { AppSidebar } from './AppSidebar';
+
+const walletState = {
+  address: '',
+  connected: false,
+  walletNetwork: null as string | null,
+};
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => mockPathname,
-  useRouter: () => ({
-    refresh: mockRefresh,
-    push: vi.fn(),
-    replace: vi.fn(),
-    prefetch: vi.fn(),
-  }),
-}))
+  usePathname: () => '/create',
+  useSearchParams: () => new URLSearchParams(),
+}));
 
-describe('AppShellLayout', () => {
-  beforeEach(() => {
-    window.sessionStorage.clear()
-    mockRefresh.mockClear()
-  })
+vi.mock('@/hooks/useWallet', () => ({
+  useWallet: () => walletState,
+}));
 
+const ADDRESS = 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW';
+const NETWORK = 'Test SDF Network ; September 2015';
+
+describe('AppShellLayout navigation boundary', () => {
   afterEach(() => {
-    window.sessionStorage.clear()
-  })
+    cleanup();
+    localStorage.clear();
+    walletState.address = '';
+    walletState.connected = false;
+    walletState.walletNetwork = null;
+  });
 
-  it('shows recovery controls when a previous route transition failed', () => {
-    window.sessionStorage.setItem(
-      'app-shell-navigation-state',
-      JSON.stringify({
-        status: 'error',
-        retryPath: '/create',
-        lastPath: '/marketplace',
-        message: 'The previous route navigation did not finish cleanly.',
-      })
-    )
+  it('recovers a disconnected wallet on a protected page without dropping the chrome', () => {
+    render(
+      <AppShellLayout>
+        <div>Secret create form</div>
+      </AppShellLayout>,
+    );
+
+    expect(screen.queryByText('Secret create form')).toBeNull();
+    expect(screen.getByTestId('shell-boundary-failure')).toHaveAttribute(
+      'data-error-code',
+      'DISCONNECTED_WALLET',
+    );
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Retry navigation' })).toBeTruthy();
+  });
+
+  it('renders protected content once wallet identity and network are verified', () => {
+    walletState.address = ADDRESS;
+    walletState.connected = true;
+    walletState.walletNetwork = NETWORK;
 
     render(
       <AppShellLayout>
-        <div>Protected content</div>
-      </AppShellLayout>
-    )
+        <div>Secret create form</div>
+      </AppShellLayout>,
+    );
 
-    expect(screen.getByText(/navigation recovery/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /retry navigation/i })).toBeInTheDocument()
-  })
+    expect(screen.getByText('Secret create form')).toBeTruthy();
+    expect(screen.getByTestId('shell-boundary-ready')).toBeTruthy();
+  });
 
-  it('keeps the active route state deterministic after a retry', () => {
-    window.sessionStorage.setItem(
-      'app-shell-navigation-state',
-      JSON.stringify({
-        status: 'error',
-        retryPath: '/create',
-        lastPath: '/marketplace',
-      })
-    )
+  it('rejects a malformed session snapshot even when the client claims to be connected', () => {
+    walletState.address = ADDRESS;
+    walletState.connected = true;
+    walletState.walletNetwork = NETWORK;
 
     render(
-      <AppShellLayout>
-        <div>Protected content</div>
-      </AppShellLayout>
-    )
+      <AppShellLayout sessionSnapshot={{ address: '0xnotstellar' }}>
+        <div>Secret create form</div>
+      </AppShellLayout>,
+    );
 
-    fireEvent.click(screen.getByRole('button', { name: /retry navigation/i }))
+    expect(screen.queryByText('Secret create form')).toBeNull();
+    expect(screen.getByTestId('shell-boundary-failure')).toHaveAttribute(
+      'data-error-code',
+      'MALFORMED_RESPONSE',
+    );
+  });
+});
 
-    expect(mockRefresh).toHaveBeenCalledTimes(1)
-    expect(window.sessionStorage.getItem('app-shell-navigation-state')).toContain('"status":"idle"')
-  })
-})
+describe('AppSidebar hostile navigation', () => {
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  it('blocks a protected destination when the wallet is disconnected', () => {
+    render(<AppSidebar auth={{ connected: false }} />);
+    fireEvent.click(screen.getByRole('link', { name: 'Create commitment' }));
+    expect(screen.getByTestId('shell-nav-blocked')).toHaveAttribute(
+      'data-error-code',
+      'DISCONNECTED_WALLET',
+    );
+  });
+
+  it('allows overview without a wallet', () => {
+    render(<AppSidebar auth={{ connected: false }} />);
+    fireEvent.click(screen.getByRole('link', { name: 'Overview' }));
+    expect(screen.queryByTestId('shell-nav-blocked')).toBeNull();
+  });
+});

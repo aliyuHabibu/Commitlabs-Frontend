@@ -1,4 +1,3 @@
-export { AppSidebar } from './AppSidebar'
-export type { AppSidebarProps } from './AppSidebar'
-export { AppShellLayout } from './AppShellLayout'
-export type { AppShellLayoutProps } from './AppShellLayout'
+export { AppShellLayout } from './AppShellLayout';
+export { AppSidebar } from './AppSidebar';
+export { ShellNavigationBoundary } from './ShellNavigationBoundary';
