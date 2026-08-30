@@ -1,10 +1,10 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/apiClient';
-import { CommitmentDetailOverview } from "@/components/CommitmentDetailOverview";
-import { AtRiskCommitments } from "@/components/dashboard/AtRiskCommitments";
-import type { Commitment } from "@/lib/types/domain";
+import { CommitmentDetailOverview } from '@/components/CommitmentDetailOverview';
+import { AtRiskCommitments } from '@/components/dashboard/AtRiskCommitments';
+import type { Commitment } from '@/lib/types/domain';
 
 export default function CommitmentOverviewPage() {
   const [commitments, setCommitments] = useState<Commitment[]>([]);
