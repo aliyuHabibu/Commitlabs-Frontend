@@ -3,11 +3,17 @@ import { render, screen, fireEvent, within } from '@testing-library/react'
 import { AppSidebar } from './AppSidebar'
 
 // Mock Next.js navigation hooks
-const mockPush = vi.fn()
-const mockPathname = '/'
+const { mockPush, mockUsePathname } = vi.hoisted(() => ({
+  mockPush: vi.fn(),
+  mockUsePathname: vi.fn(),
+}))
+
+let mockPathname = '/'
+
+mockUsePathname.mockImplementation(() => mockPathname)
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => mockPathname,
+  usePathname: mockUsePathname,
   useRouter: () => ({
     push: mockPush,
     replace: vi.fn(),
@@ -16,23 +22,31 @@ vi.mock('next/navigation', () => ({
 }))
 
 // Mock framer-motion to avoid animation issues in tests
-vi.mock('framer-motion', () => ({
-  motion: {
-    aside: ({ children, ...props }: any) => <aside {...props}>{children}</aside>,
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-  },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
-}))
+vi.mock('framer-motion', () => {
+  const React = require('react')
+
+  return {
+    motion: {
+      aside: React.forwardRef<HTMLElement, any>(({ children, ...props }, ref) => (
+        <aside ref={ref} {...props}>{children}</aside>
+      )),
+      div: React.forwardRef<HTMLDivElement, any>(({ children, ...props }, ref) => (
+        <div ref={ref} {...props}>{children}</div>
+      )),
+    },
+    AnimatePresence: ({ children }: any) => <>{children}</>,
+  }
+})
 
 describe('AppSidebar', () => {
   beforeEach(() => {
-    // Clear sessionStorage before each test
-    sessionStorage.clear()
+    mockPathname = '/'
+    window.sessionStorage.clear()
     vi.clearAllMocks()
   })
 
   afterEach(() => {
-    sessionStorage.clear()
+    window.sessionStorage.clear()
   })
 
   describe('Rendering', () => {
@@ -64,7 +78,7 @@ describe('AppSidebar', () => {
 
   describe('Active Route Highlighting', () => {
     it('highlights the home link when on home page', () => {
-      vi.mocked(require('next/navigation').usePathname).mockReturnValue('/')
+      mockUsePathname.mockReturnValue('/')
       render(<AppSidebar />)
       
       const homeLink = screen.getByRole('link', { name: /home/i })
@@ -74,7 +88,7 @@ describe('AppSidebar', () => {
     })
 
     it('highlights the marketplace link when on marketplace page', () => {
-      vi.mocked(require('next/navigation').usePathname).mockReturnValue('/marketplace')
+      mockUsePathname.mockReturnValue('/marketplace')
       render(<AppSidebar />)
       
       const marketplaceLink = screen.getByRole('link', { name: /marketplace/i })
@@ -83,7 +97,7 @@ describe('AppSidebar', () => {
     })
 
     it('highlights the create link when on create page', () => {
-      vi.mocked(require('next/navigation').usePathname).mockReturnValue('/create')
+      mockUsePathname.mockReturnValue('/create')
       render(<AppSidebar />)
       
       const createLink = screen.getByRole('link', { name: /create/i })
@@ -91,7 +105,7 @@ describe('AppSidebar', () => {
     })
 
     it('highlights commitments link for nested commitment routes', () => {
-      vi.mocked(require('next/navigation').usePathname).mockReturnValue('/commitments/CMT-123')
+      mockUsePathname.mockReturnValue('/commitments/CMT-123')
       render(<AppSidebar />)
       
       const commitmentsLink = screen.getByRole('link', { name: /commitments/i })
@@ -121,11 +135,11 @@ describe('AppSidebar', () => {
       const collapseButton = screen.getByRole('button', { name: /collapse sidebar/i })
       fireEvent.click(collapseButton)
       
-      expect(sessionStorage.getItem('sidebar-collapsed')).toBe('true')
+      expect(window.sessionStorage.getItem('sidebar-collapsed')).toBe('true')
     })
 
     it('loads collapsed state from sessionStorage on mount', () => {
-      sessionStorage.setItem('sidebar-collapsed', 'true')
+      window.sessionStorage.setItem('sidebar-collapsed', 'true')
       
       render(<AppSidebar />)
       
@@ -134,7 +148,7 @@ describe('AppSidebar', () => {
     })
 
     it('shows tooltips on nav items when collapsed', () => {
-      sessionStorage.setItem('sidebar-collapsed', 'true')
+      window.sessionStorage.setItem('sidebar-collapsed', 'true')
       render(<AppSidebar />)
       
       const homeLink = screen.getByRole('link', { name: /home/i })
@@ -203,7 +217,7 @@ describe('AppSidebar', () => {
     })
 
     it('sets aria-current on active navigation items', () => {
-      vi.mocked(require('next/navigation').usePathname).mockReturnValue('/marketplace')
+      mockUsePathname.mockReturnValue('/marketplace')
       render(<AppSidebar />)
       
       const marketplaceLink = screen.getByRole('link', { name: /marketplace/i })
@@ -286,7 +300,7 @@ describe('AppSidebar', () => {
     })
 
     it('handles navigation to root path correctly', () => {
-      vi.mocked(require('next/navigation').usePathname).mockReturnValue('/')
+      mockUsePathname.mockReturnValue('/')
       render(<AppSidebar />)
       
       const homeLink = screen.getByRole('link', { name: /home/i })

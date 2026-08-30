@@ -2,20 +2,26 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { 
-  Home, 
-  Store, 
-  PlusCircle, 
-  Shield, 
-  Settings, 
-  ChevronLeft, 
+import { usePathname, useRouter } from 'next/navigation'
+import {
+  Home,
+  Store,
+  PlusCircle,
+  Shield,
+  Settings,
+  ChevronLeft,
   ChevronRight,
   X,
   Menu
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme/ThemeToggle'
 import { motion, AnimatePresence } from 'framer-motion'
+import {
+  createIdleAppShellNavigationState,
+  isDuplicateNavigationAttempt,
+  readAppShellNavigationState,
+  writeAppShellNavigationState,
+} from './navigationState'
 
 interface NavItem {
   href: string
@@ -63,6 +69,7 @@ export interface AppSidebarProps {
 
 export const AppSidebar: React.FC<AppSidebarProps> = ({ className = '' }) => {
   const pathname = usePathname()
+  const router = useRouter()
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const sidebarRef = useRef<HTMLElement>(null)
@@ -70,20 +77,36 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ className = '' }) => {
 
   // Load collapsed state from sessionStorage
   useEffect(() => {
-    const stored = sessionStorage.getItem('sidebar-collapsed')
-    if (stored !== null) {
-      setIsCollapsed(stored === 'true')
+    try {
+      const stored = window.sessionStorage.getItem('sidebar-collapsed')
+      if (stored !== null) {
+        setIsCollapsed(stored === 'true')
+      }
+    } catch {
+      // Ignore storage failures so the shell remains usable.
     }
   }, [])
 
   // Save collapsed state to sessionStorage
   useEffect(() => {
-    sessionStorage.setItem('sidebar-collapsed', String(isCollapsed))
+    try {
+      window.sessionStorage.setItem('sidebar-collapsed', String(isCollapsed))
+    } catch {
+      // Ignore storage failures so the shell remains usable.
+    }
   }, [isCollapsed])
 
   // Close mobile sidebar on route change
   useEffect(() => {
     setIsMobileOpen(false)
+  }, [pathname])
+
+  useEffect(() => {
+    const state = readAppShellNavigationState(pathname || '/')
+    if (state.status === 'navigating' && state.retryPath === pathname) {
+      const nextState = createIdleAppShellNavigationState(pathname || '/')
+      writeAppShellNavigationState(nextState)
+    }
   }, [pathname])
 
   // Focus trap for mobile drawer
@@ -121,10 +144,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ className = '' }) => {
     }
 
     document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keydown', handleKeyDown)
     firstElement?.focus()
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keydown', handleKeyDown)
     }
   }, [isMobileOpen])
 
@@ -142,6 +167,30 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ className = '' }) => {
 
   const toggleMobileMenu = () => {
     setIsMobileOpen(prev => !prev)
+  }
+
+  const handleNavigationIntent = (targetPath: string) => {
+    if (targetPath === pathname) {
+      return
+    }
+
+    const currentState = readAppShellNavigationState(pathname || '/')
+    if (isDuplicateNavigationAttempt(currentState, targetPath)) {
+      return
+    }
+
+    const nextState = {
+      ...createIdleAppShellNavigationState(pathname || '/'),
+      status: 'navigating' as const,
+      lastPath: pathname || '/',
+      retryPath: targetPath,
+      attemptId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      startedAt: Date.now(),
+      message: `Preparing to navigate to ${targetPath}`,
+    }
+
+    writeAppShellNavigationState(nextState)
+    router.push(targetPath)
   }
 
   const handleOverlayClick = (e: React.MouseEvent) => {
@@ -238,7 +287,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ className = '' }) => {
             </div>
 
             {/* Navigation Items */}
-            <nav className="flex-1 py-4 overflow-y-auto">
+            <nav aria-label="Main navigation" className="flex-1 py-4 overflow-y-auto">
               <ul className="space-y-1 px-2">
                 {navItems.map((item) => {
                   const active = isActive(item)
@@ -246,7 +295,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ className = '' }) => {
                     <li key={item.href}>
                       <Link
                         href={item.href}
-                        onClick={() => setIsMobileOpen(false)}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          handleNavigationIntent(item.href)
+                          setIsMobileOpen(false)
+                        }}
                         className={`
                           flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all
                           ${active
