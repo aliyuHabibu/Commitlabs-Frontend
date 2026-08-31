@@ -151,9 +151,11 @@ export function buildProtocolAnalytics(
     activeCommitments,
     settledCommitments,
     violatedCommitments,
-    totalValueLocked: totalValueLocked.toFixed(2),
-    totalFeesEarned: totalFeesEarned.toFixed(2),
-    averageComplianceScore,
+    totalValueLocked: formatCurrencyMetric(validCommitments.reduce((acc, c) => acc + c.amount, 0)),
+    totalFeesEarned: formatCurrencyMetric(
+      validCommitments.reduce((acc, c) => acc + c.feeEarned, 0),
+    ),
+    averageComplianceScore: Number(averageComplianceScore.toFixed(2)),
     totalViolations,
     uniqueOwners: ownerSet.size,
     snapshot: {
