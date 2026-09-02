@@ -99,9 +99,7 @@ export function SettlementEligibilityChecklist({
           </div>
           {reason && <p className="text-white/50 ml-5">{reason}</p>}
           {estimatedSettlement && (
-            <p className="text-white/50 ml-5">
-              Estimated settlement: {estimatedSettlement}
-            </p>
+            <p className="text-white/50 ml-5">Estimated settlement: {estimatedSettlement}</p>
           )}
         </div>
       )}
@@ -125,5 +123,3 @@ export function SettlementEligibilityChecklist({
     </div>
   );
 }
-
-

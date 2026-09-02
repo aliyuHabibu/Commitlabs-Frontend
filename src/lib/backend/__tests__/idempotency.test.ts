@@ -336,7 +336,11 @@ describe('IdempotencyService', () => {
 
   describe('full idempotency lifecycle', () => {
     it('STARTED → COMPLETED → replay returns same data', async () => {
-      const payload = { commitmentId: 'cmt-999', txHash: '0xfeed', fundedAt: '2026-09-01T00:00:00.000Z' };
+      const payload = {
+        commitmentId: 'cmt-999',
+        txHash: '0xfeed',
+        fundedAt: '2026-09-01T00:00:00.000Z',
+      };
 
       await service.start('lifecycle-1');
       let record = await service.getRecord('lifecycle-1');

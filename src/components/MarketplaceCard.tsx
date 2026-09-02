@@ -101,16 +101,16 @@ const MarketplaceCardComponent = memo(function MarketplaceCard({
               {compareSelected ? 'Comparing' : 'Compare'}
             </button>
           )}
-          <span className={`text-[12px] tracking-[0.02em] font-[650] px-3 py-2 rounded-full bg-white/5 border border-white/10`}>
+          <span
+            className={`text-[12px] tracking-[0.02em] font-[650] px-3 py-2 rounded-full bg-white/5 border border-white/10`}
+          >
             {clampedScore}%
           </span>
         </div>
       </header>
 
       <div className="flex-1 pt-[10px] px-[2px] pb-0">
-        <div className="font-mono text-[13px] text-white/65 mb-3">
-          #{id}
-        </div>
+        <div className="font-mono text-[13px] text-white/65 mb-3">#{id}</div>
 
         <dl className="grid gap-3">
           <div className="flex items-baseline justify-between gap-4">

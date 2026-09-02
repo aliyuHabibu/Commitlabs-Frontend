@@ -49,8 +49,9 @@ export const GET = withApiHandler(
         new Promise((_, reject) => {
           timeoutId = setTimeout(() => {
             const err = new Error('Marketplace listing fetch timed out');
-            (err as any).code = 'MARKETPLACE_LISTING_TIMEOUT';
-            (err as any).status = 504;
+            (err as Error & { code?: string; status?: number }).code =
+              'MARKETPLACE_LISTING_TIMEOUT';
+            (err as Error & { code?: string; status?: number }).status = 504;
             reject(err);
           }, MARKETPLACE_LISTING_DETAIL_TIMEOUT_MS);
         }),

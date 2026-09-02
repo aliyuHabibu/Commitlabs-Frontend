@@ -44,10 +44,7 @@ export {
   pollWithBackoff,
 } from './transactionPolling';
 
-export type {
-  PollingResult,
-  PollingOptions,
-} from './transactionPolling';
+export type { PollingResult, PollingOptions } from './transactionPolling';
 
 // Persistence
 export {

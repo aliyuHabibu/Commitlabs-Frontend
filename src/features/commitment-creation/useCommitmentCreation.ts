@@ -21,9 +21,9 @@ function loadInitialState(): DraftState {
 }
 
 function createDraftId(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ?
-    crypto.randomUUID() :
-    `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export function useCommitmentCreation() {
@@ -51,21 +51,27 @@ export function useCommitmentCreation() {
     dispatch({ type: 'START', draftId, step: 1, data: {} });
   }, [saveDraft]);
 
-  const editDraft = useCallback((draft: CommitmentDraft) => {
-    saveDraft(draft);
-    dispatch({ type: 'EDIT', draftId: draft.id, step: draft.step, data: draft.data });
-  }, [saveDraft]);
+  const editDraft = useCallback(
+    (draft: CommitmentDraft) => {
+      saveDraft(draft);
+      dispatch({ type: 'EDIT', draftId: draft.id, step: draft.step, data: draft.data });
+    },
+    [saveDraft],
+  );
 
   const submit = useCallback((id: string) => {
     dispatch({ type: 'SUBMIT', id });
   }, []);
 
-  const confirmSuccess = useCallback((id: string, txHash: string) => {
-    if (state.draftId) {
-      deleteDraft(state.draftId);
-    }
-    dispatch({ type: 'SUCCESS', id });
-  }, [state.draftId, deleteDraft]);
+  const confirmSuccess = useCallback(
+    (id: string, _txHash: string) => {
+      if (state.draftId) {
+        deleteDraft(state.draftId);
+      }
+      dispatch({ type: 'SUCCESS', id });
+    },
+    [state.draftId, deleteDraft],
+  );
 
   const confirmFailure = useCallback((id: string, error: WizardError) => {
     dispatch({ type: 'FAILURE', id, error: error.message });
@@ -74,23 +80,29 @@ export function useCommitmentCreation() {
   const cancel = useCallback(() => dispatch({ type: 'CANCEL' }), []);
   const retry = useCallback(() => dispatch({ type: 'RETRY' }), []);
 
-  const resumeDraft = useCallback((draftId: string) => {
-    const draft = drafts.find((d: NamedDraft) => d.id === draftId);
-    if (!draft) return;
-    dispatch({
-      type: 'RESUME',
-      draftId: draft.id,
-      step: draft.data.step ?? 1,
-      data: draft.data,
-    });
-  }, [drafts]);
+  const resumeDraft = useCallback(
+    (draftId: string) => {
+      const draft = drafts.find((d: NamedDraft) => d.id === draftId);
+      if (!draft) return;
+      dispatch({
+        type: 'RESUME',
+        draftId: draft.id,
+        step: draft.data.step ?? 1,
+        data: draft.data,
+      });
+    },
+    [drafts],
+  );
 
-  const deleteDraftById = useCallback((draftId: string) => {
-    deleteDraft(draftId);
-    if (state.draftId === draftId) {
-      dispatch({ type: 'START' });
-    }
-  }, [deleteDraft, state.draftId]);
+  const deleteDraftById = useCallback(
+    (draftId: string) => {
+      deleteDraft(draftId);
+      if (state.draftId === draftId) {
+        dispatch({ type: 'START' });
+      }
+    },
+    [deleteDraft, state.draftId],
+  );
 
   return {
     state,

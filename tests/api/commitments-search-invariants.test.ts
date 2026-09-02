@@ -22,7 +22,7 @@
  * Refs #1775
  */
 
-import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockRequest, parseResponse } from './helpers';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ vi.mock('@/lib/backend/services/contracts', () => ({
 }));
 
 import { GET } from '@/app/api/commitments/search/route';
-import { requireAuth } from '@/lib/backend/requireAuth';
+import { requireAuth, type AuthenticatedRequest } from '@/lib/backend/requireAuth';
 import { checkRateLimit } from '@/lib/backend/rateLimit';
 import { getUserCommitmentsFromChain } from '@/lib/backend/services/contracts';
 import type { ChainCommitment } from '@/lib/backend/services/contracts';
@@ -94,7 +94,7 @@ describe('GET /api/commitments/search — #1775 invariants', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     await cache.invalidate('commitlabs:commitment-search:');
-    mockedRequireAuth.mockImplementation((req) => req as any);
+    mockedRequireAuth.mockImplementation((req) => req as AuthenticatedRequest);
     mockedCheckRateLimit.mockResolvedValue(true);
     mockedGetUserCommitmentsFromChain.mockResolvedValue(SAMPLE_COMMITMENTS);
   });
@@ -164,9 +164,7 @@ describe('GET /api/commitments/search — #1775 invariants', () => {
       const response = await GET(createMockRequest(getUrl()));
 
       // Check all headers — none should contain common secret patterns
-      const responseHeaders = Object.fromEntries(
-        (response.headers as any).entries?.() ?? [],
-      );
+      const responseHeaders = Object.fromEntries(response.headers.entries());
       for (const [key, value] of Object.entries(responseHeaders)) {
         // Keys should only be X-Search-* telemetry, CORS, and standard headers
         if (key.toLowerCase().startsWith('x-search-')) {

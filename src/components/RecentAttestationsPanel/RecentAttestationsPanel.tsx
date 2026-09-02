@@ -63,10 +63,7 @@ export default function RecentAttestationsPanel({
           </button>
         ))}
       </div>
-      <button
-        onClick={onViewAll}
-        className="mt-3 text-[#0FF0FC] text-sm hover:underline"
-      >
+      <button onClick={onViewAll} className="mt-3 text-[#0FF0FC] text-sm hover:underline">
         View all attestations
       </button>
     </section>

@@ -39,18 +39,37 @@ export function compareCommitmentEvents(a: CommitmentEvent, b: CommitmentEvent):
  */
 export function sortCommitmentEvents(events: CommitmentEvent[]): CommitmentEvent[] {
   if (!Array.isArray(events)) {
-    throw new CommitmentEventsError('Timeline events must be an array', ERROR_CODES.INVALID_EVENT, events);
+    throw new CommitmentEventsError(
+      'Timeline events must be an array',
+      ERROR_CODES.INVALID_EVENT,
+      events,
+    );
   }
   for (const event of events) {
     if (!event || typeof event.id !== 'string' || event.id.length === 0) {
-      throw new CommitmentEventsError('Timeline event id must be a non-empty string', ERROR_CODES.INVALID_EVENT, event);
+      throw new CommitmentEventsError(
+        'Timeline event id must be a non-empty string',
+        ERROR_CODES.INVALID_EVENT,
+        event,
+      );
     }
     const timestamp = event.blockTimestamp || event.createdAt;
     if (typeof timestamp !== 'string' || timestamp.length === 0) {
-      throw new CommitmentEventsError('Timeline event timestamp must be a non-empty string', ERROR_CODES.INVALID_EVENT, event);
+      throw new CommitmentEventsError(
+        'Timeline event timestamp must be a non-empty string',
+        ERROR_CODES.INVALID_EVENT,
+        event,
+      );
     }
-    if (event.sequence !== undefined && (typeof event.sequence !== 'number' || !Number.isFinite(event.sequence))) {
-      throw new CommitmentEventsError('Timeline event sequence must be a finite number', ERROR_CODES.INVALID_EVENT, event);
+    if (
+      event.sequence !== undefined &&
+      (typeof event.sequence !== 'number' || !Number.isFinite(event.sequence))
+    ) {
+      throw new CommitmentEventsError(
+        'Timeline event sequence must be a finite number',
+        ERROR_CODES.INVALID_EVENT,
+        event,
+      );
     }
   }
   return [...events].sort(compareCommitmentEvents);
@@ -62,13 +81,21 @@ export function sortCommitmentEvents(events: CommitmentEvent[]): CommitmentEvent
  */
 export function dedupeCommitmentEvents(events: CommitmentEvent[]): CommitmentEvent[] {
   if (!Array.isArray(events)) {
-    throw new CommitmentEventsError('Timeline events must be an array', ERROR_CODES.INVALID_EVENT, events);
+    throw new CommitmentEventsError(
+      'Timeline events must be an array',
+      ERROR_CODES.INVALID_EVENT,
+      events,
+    );
   }
   const seen = new Set<string>();
   const result: CommitmentEvent[] = [];
   for (const ev of events) {
     if (!ev || typeof ev.id !== 'string' || ev.id.length === 0) {
-      throw new CommitmentEventsError('Timeline event id must be a non-empty string', ERROR_CODES.INVALID_EVENT, ev);
+      throw new CommitmentEventsError(
+        'Timeline event id must be a non-empty string',
+        ERROR_CODES.INVALID_EVENT,
+        ev,
+      );
     }
     if (!seen.has(ev.id)) {
       seen.add(ev.id);
@@ -84,17 +111,20 @@ function encodeBase64Url(input: string): string {
   if (typeof btoa === 'function' && typeof TextEncoder !== 'undefined') {
     const bytes = new TextEncoder().encode(input);
     let binary = '';
-    for (const byte of bytes) { binary += String.fromCharCode(byte); }
-    return btoa(binary)
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/g, '');
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
   }
   // Node fallback (Core modules or test environment)
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(input, 'utf8').toString('base64url');
   }
-  throw new CommitmentEventsError('No base64 encoding available', ERROR_CODES.INVALID_CURSOR, input);
+  throw new CommitmentEventsError(
+    'No base64 encoding available',
+    ERROR_CODES.INVALID_CURSOR,
+    input,
+  );
 }
 
 function decodeBase64Url(input: string): string {
@@ -103,7 +133,7 @@ function decodeBase64Url(input: string): string {
 
   if (typeof atob === 'function' && typeof TextDecoder !== 'undefined') {
     const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
     return new TextDecoder().decode(bytes);
   }
   if (typeof Buffer !== 'undefined') {
@@ -117,14 +147,29 @@ function decodeBase64Url(input: string): string {
  */
 export function encodeCommitmentCursor(event: CommitmentEvent): string {
   if (!event || typeof event.id !== 'string' || event.id.length === 0) {
-    throw new CommitmentEventsError('Timeline event id must be a non-empty string', ERROR_CODES.INVALID_EVENT, event);
+    throw new CommitmentEventsError(
+      'Timeline event id must be a non-empty string',
+      ERROR_CODES.INVALID_EVENT,
+      event,
+    );
   }
   const timestamp = event.blockTimestamp || event.createdAt;
   if (typeof timestamp !== 'string' || timestamp.length === 0) {
-    throw new CommitmentEventsError('Timeline event timestamp must be a non-empty string', ERROR_CODES.INVALID_EVENT, event);
+    throw new CommitmentEventsError(
+      'Timeline event timestamp must be a non-empty string',
+      ERROR_CODES.INVALID_EVENT,
+      event,
+    );
   }
-  if (event.sequence !== undefined && (typeof event.sequence !== 'number' || !Number.isFinite(event.sequence))) {
-    throw new CommitmentEventsError('Timeline event sequence must be a finite number', ERROR_CODES.INVALID_EVENT, event);
+  if (
+    event.sequence !== undefined &&
+    (typeof event.sequence !== 'number' || !Number.isFinite(event.sequence))
+  ) {
+    throw new CommitmentEventsError(
+      'Timeline event sequence must be a finite number',
+      ERROR_CODES.INVALID_EVENT,
+      event,
+    );
   }
   const raw = JSON.stringify({ id: event.id, ts: timestamp, seq: event.sequence ?? null });
   return encodeBase64Url(raw);
@@ -135,19 +180,31 @@ export function encodeCommitmentCursor(event: CommitmentEvent): string {
  */
 export function decodeCommitmentCursor(cursor: string): CommitmentCursor {
   if (typeof cursor !== 'string' || cursor.length === 0) {
-    throw new CommitmentEventsError('Cursor must be a non-empty string', ERROR_CODES.INVALID_CURSOR, cursor);
+    throw new CommitmentEventsError(
+      'Cursor must be a non-empty string',
+      ERROR_CODES.INVALID_CURSOR,
+      cursor,
+    );
   }
   let raw: string;
   try {
     raw = decodeBase64Url(cursor);
   } catch (error) {
-    throw new CommitmentEventsError('Cursor is not valid base64url', ERROR_CODES.INVALID_CURSOR, error);
+    throw new CommitmentEventsError(
+      'Cursor is not valid base64url',
+      ERROR_CODES.INVALID_CURSOR,
+      error,
+    );
   }
-  let parsed: any;
+  let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new CommitmentEventsError('Cursor is not a valid JSON object', ERROR_CODES.INVALID_CURSOR, error);
+    throw new CommitmentEventsError(
+      'Cursor is not a valid JSON object',
+      ERROR_CODES.INVALID_CURSOR,
+      error,
+    );
   }
   if (
     !parsed ||
@@ -157,7 +214,11 @@ export function decodeCommitmentCursor(cursor: string): CommitmentCursor {
     parsed.ts.length === 0 ||
     (parsed.seq !== null && (typeof parsed.seq !== 'number' || !Number.isFinite(parsed.seq)))
   ) {
-    throw new CommitmentEventsError('Cursor payload is malformed', ERROR_CODES.INVALID_CURSOR, parsed);
+    throw new CommitmentEventsError(
+      'Cursor payload is malformed',
+      ERROR_CODES.INVALID_CURSOR,
+      parsed,
+    );
   }
   return {
     id: parsed.id,
@@ -195,17 +256,25 @@ export function parsePageSize(limit: unknown): number {
   } else if (typeof limit === 'number') {
     num = limit;
   } else {
-    throw new CommitmentEventsError('Page size must be a number or numeric string', ERROR_CODES.INVALID_LIMIT, limit);
+    throw new CommitmentEventsError(
+      'Page size must be a number or numeric string',
+      ERROR_CODES.INVALID_LIMIT,
+      limit,
+    );
   }
   if (!Number.isInteger(num) || num < MIN_PAGE_SIZE) {
-    throw new CommitmentEventsError('Page size must be an integer greater than or equal to 1', ERROR_CODES.INVALID_LIMIT, limit);
+    throw new CommitmentEventsError(
+      'Page size must be an integer greater than or equal to 1',
+      ERROR_CODES.INVALID_LIMIT,
+      limit,
+    );
   }
   return Math.min(num, MAX_PAGE_SIZE);
 }
 
 /**
  * Paginate a sorted list of events based on an optional cursor.
- * 
+ *
  * The input events may contain duplicates and unordered entries.
  * This function normalizes the list and enforces consistent descending
  * order.
@@ -213,7 +282,7 @@ export function parsePageSize(limit: unknown): number {
 export function paginateCommitmentEvents(
   events: CommitmentEvent[],
   cursor?: string | null,
-  limit?: number
+  limit?: number,
 ): CommitmentEventsPage {
   const safeLimit = parsePageSize(limit);
   const sorted = sortCommitmentEvents(events);
@@ -222,18 +291,19 @@ export function paginateCommitmentEvents(
   let startIndex = 0;
   if (cursor) {
     const decoded = decodeCommitmentCursor(cursor);
-    const cursorIndex = deduped.findIndex(ev => ev.id === decoded.id);
+    const cursorIndex = deduped.findIndex((ev) => ev.id === decoded.id);
     if (cursorIndex !== -1) {
       startIndex = cursorIndex + 1;
     } else {
-      const olderIndex = deduped.findIndex(ev => isEventAfterCursor(ev, decoded));
+      const olderIndex = deduped.findIndex((ev) => isEventAfterCursor(ev, decoded));
       startIndex = olderIndex === -1 ? deduped.length : olderIndex;
     }
   }
 
   const page = deduped.slice(startIndex, startIndex + safeLimit);
   const hasMore = startIndex + safeLimit < deduped.length;
-  const nextCursor = hasMore && page.length > 0 ? encodeCommitmentCursor(page[page.length - 1]) : null;
+  const nextCursor =
+    hasMore && page.length > 0 ? encodeCommitmentCursor(page[page.length - 1]) : null;
 
   return { events: page, nextCursor: nextCursor, hasMore };
 }
@@ -242,7 +312,7 @@ export function paginateCommitmentEvents(
 
 /**
  * Fetch a page of commitment events from the API.
- * 
+ *
  * @param params.commitmentId The commitment ID.
  * @param params.cursor Pagination cursor from a previous response.
  * @param params.limit Requested page size (max 100).
@@ -258,7 +328,11 @@ export async function fetchCommitmentEvents({
   baseUrl = '',
 }: FetchCommitmentEventsParams): Promise<CommitmentEventsPage> {
   if (!commitmentId) {
-    throw new CommitmentEventsError('commitmentId is required', ERROR_CODES.INVALID_EVENT, commitmentId);
+    throw new CommitmentEventsError(
+      'commitmentId is required',
+      ERROR_CODES.INVALID_EVENT,
+      commitmentId,
+    );
   }
 
   const path = `/api/commitments/${encodeURIComponent(commitmentId)}/events`;
@@ -276,24 +350,40 @@ export async function fetchCommitmentEvents({
   try {
     const res = await doFetch(url.toString(), {
       signal,
-      headers: { 'Accept': 'application/json' },
+      headers: { Accept: 'application/json' },
     });
 
     if (res.status === 401 || res.status === 403) {
-      throw new CommitmentEventsError('Not authorized to access commitment events', ERROR_CODES.UNAUTHORIZED, res.status);
+      throw new CommitmentEventsError(
+        'Not authorized to access commitment events',
+        ERROR_CODES.UNAUTHORIZED,
+        res.status,
+      );
     }
     if (!res.ok) {
-      throw new CommitmentEventsError( `HTTP error ${res.status}`, ERROR_CODES.HTTP_ERROR, res.status );
+      throw new CommitmentEventsError(
+        `HTTP error ${res.status}`,
+        ERROR_CODES.HTTP_ERROR,
+        res.status,
+      );
     }
 
     const body = await res.json();
     return normalizeCommitmentEventsPage(body);
   } catch (error) {
     if (error instanceof CommitmentEventsError) throw error;
-    if (typeof error === 'object' && error !== null && (error as { name?: string }).name === 'AbortError') {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { name?: string }).name === 'AbortError'
+    ) {
       throw new CommitmentEventsError('Request was aborted', ERROR_CODES.ABORTED, error);
     }
-    throw new CommitmentEventsError('Failed to fetch commitment events', ERROR_CODES.NETWORK_ERROR, error);
+    throw new CommitmentEventsError(
+      'Failed to fetch commitment events',
+      ERROR_CODES.NETWORK_ERROR,
+      error,
+    );
   }
 }
 
@@ -303,12 +393,19 @@ function normalizeCommitmentEventsPage(value: unknown): CommitmentEventsPage {
   }
   const v = value as Record<string, unknown>;
   if (!Array.isArray(v.events)) {
-    throw new CommitmentEventsError('Events page must contain an array of events', ERROR_CODES.INVALID_EVENT, value);
+    throw new CommitmentEventsError(
+      'Events page must contain an array of events',
+      ERROR_CODES.INVALID_EVENT,
+      value,
+    );
   }
-  const events = dedupeCommitmentEvents(sortCommitmentEvents(v.events.map(event => normalizeCommitmentEvent(event))));
+  const events = dedupeCommitmentEvents(
+    sortCommitmentEvents(v.events.map((event) => normalizeCommitmentEvent(event))),
+  );
   const nextCursor = typeof v.nextCursor === 'string' ? v.nextCursor : null;
   const hasMore = Boolean(v.hasMore);
-  const total = typeof v.total === 'number' && Number.isFinite(v.total) && v.total >= 0 ? v.total : undefined;
+  const total =
+    typeof v.total === 'number' && Number.isFinite(v.total) && v.total >= 0 ? v.total : undefined;
   return { events, nextCursor, hasMore, total };
 }
 
@@ -320,7 +417,7 @@ function normalizeCommitmentEventsPage(value: unknown): CommitmentEventsPage {
  */
 export function mergeCommitmentEventPages(
   previous?: CommitmentEventsPage | null,
-  next?: CommitmentEventsPage | null
+  next?: CommitmentEventsPage | null,
 ): CommitmentEventsPage {
   if (!previous) {
     if (!next) return { events: [], nextCursor: null, hasMore: false };

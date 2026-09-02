@@ -11,7 +11,12 @@ import React from 'react';
  */
 export function MyCommitmentsGridSkeleton({ count = 6 }: { count?: number }) {
   return (
-    <div role="status" aria-label="Loading commitments" aria-busy="true" className="flex flex-col gap-4">
+    <div
+      role="status"
+      aria-label="Loading commitments"
+      aria-busy="true"
+      className="flex flex-col gap-4"
+    >
       <div className="flex items-center gap-2">
         <div className="h-4 w-24 rounded bg-white/10 animate-pulse" />
         <div className="h-4 w-32 rounded bg-white/10 animate-pulse" />

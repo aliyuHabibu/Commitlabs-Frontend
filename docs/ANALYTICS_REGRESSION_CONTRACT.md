@@ -13,11 +13,13 @@ This PR establishes a comprehensive regression contract for the protocol analyti
 ### Scope
 
 **Endpoints & Components**:
+
 - `GET /api/analytics/protocol` - Protocol-wide analytics aggregation
 - `AnalyticsTrendBarChart` - Bar chart visualization component
 - `AnalyticsTrendLineChart` - Line chart visualization component
 
 **Key Deliverables**:
+
 1. ✅ Comprehensive unit and integration tests (110+ test cases)
 2. ✅ Accessibility verification (WCAG 2.1 Level AA compliance)
 3. ✅ API contract documentation with invariants
@@ -35,12 +37,14 @@ This PR establishes a comprehensive regression contract for the protocol analyti
 **Invariants Established**:
 
 1. **Status Breakdown Consistency**
+
    ```
    activeCommitments + settledCommitments + violatedCommitments ≤ totalCommitments
    ```
    - Test: `tests/api/protocol-analytics.test.ts` → "should return consistent totals"
 
 2. **Numeric Value Precision**
+
    ```
    totalValueLocked and totalFeesEarned: exactly 2 decimal places
    averageComplianceScore: ≤ 2 decimal places
@@ -49,12 +53,14 @@ This PR establishes a comprehensive regression contract for the protocol analyti
    - Implementation: `sumNumericStringField()`, `toFixed(2)`
 
 3. **Non-Negative Aggregates**
+
    ```
    All counts ≥ 0; skips non-finite values (NaN, Infinity)
    ```
    - Tests: "Null/undefined handling" suite (5+ tests)
 
 4. **Unique Owner Filtering**
+
    ```
    Filters out empty ownerAddress values
    uniqueOwners ≤ totalCommitments
@@ -68,6 +74,7 @@ This PR establishes a comprehensive regression contract for the protocol analyti
    - Tests: "should return same response for identical requests"
 
 **Test Coverage**:
+
 - `tests/api/protocol-analytics.test.ts`: 40+ tests verify invariants
 - No failures on valid data
 - Graceful handling of edge cases
@@ -81,6 +88,7 @@ This PR establishes a comprehensive regression contract for the protocol analyti
 #### API Route Tests (53 tests)
 
 **Success Scenarios** (12 tests):
+
 - Single & multiple commitments
 - Status filtering and aggregation
 - Numeric field summation
@@ -90,6 +98,7 @@ This PR establishes a comprehensive regression contract for the protocol analyti
 - Response type invariants
 
 **Boundary Cases** (12 tests):
+
 - Empty commitment list
 - Zero amounts and fees
 - Empty owner addresses
@@ -99,20 +108,24 @@ This PR establishes a comprehensive regression contract for the protocol analyti
 - Very small numbers (0.01)
 
 **Null/Undefined Handling** (4 tests):
+
 - NaN values
 - Positive/negative Infinity
 - Skip non-finite in aggregation
 
 **Status Filtering** (5 tests):
+
 - ACTIVE, SETTLED, VIOLATED categories
 - Unknown status exclusion
 
 **Response Format** (3 tests):
+
 - All required fields present
 - Correct numeric types
 - No NaN/Infinity in results
 
 **Endpoint Tests** (14 tests):
+
 - Feature flag gating (disabled/enabled)
 - HTTP method enforcement (GET only)
 - CORS policy enforcement
@@ -124,6 +137,7 @@ This PR establishes a comprehensive regression contract for the protocol analyti
 #### Component Tests (70+ tests)
 
 **AnalyticsTrendBarChart** (30+ tests):
+
 - Rendering (5): title, section, aria-label
 - Data rendering (3): chart SVG, legend, description
 - Empty state (3): graceful rendering, no SVG
@@ -135,6 +149,7 @@ This PR establishes a comprehensive regression contract for the protocol analyti
 - Reduced motion (1): CSS support
 
 **AnalyticsTrendLineChart** (40+ tests):
+
 - Rendering (3): title, section, aria-label
 - Chart & table (6): SVG, table structure, headers
 - Empty state (4): graceful rendering, no SVG/table
@@ -156,61 +171,73 @@ This PR establishes a comprehensive regression contract for the protocol analyti
 **Verification Approach**:
 
 #### 1. Automated Accessibility Testing
+
 ```bash
 npm run test tests/components/AnalyticsCharts.test.tsx
 ```
+
 - Uses `vitest-axe` for automated WCAG violation detection
 - Tests: "should pass axe accessibility checks" (2+ per component)
 - Coverage: Perceivable, Operable, Understandable, Robust
 
 #### 2. Semantic HTML Verification
-| Component | Structure | Tests |
-|-----------|-----------|-------|
-| Bar Chart | `<section>` → `<h3>` → `<p>` + chart | 5 tests |
+
+| Component  | Structure                                                | Tests   |
+| ---------- | -------------------------------------------------------- | ------- |
+| Bar Chart  | `<section>` → `<h3>` → `<p>` + chart                     | 5 tests |
 | Line Chart | `<section>` → `<h3>` → `<p>` + chart + `<table sr-only>` | 6 tests |
 
 #### 3. ARIA Attributes
+
 - `aria-label` on sections
 - `aria-label` on tables
 - `aria-hidden="true"` on visual charts (hide from screen readers)
 - `scope="col"` on table headers
 
 #### 4. Keyboard Navigation
+
 - ✅ No keyboard traps (2 tests per component)
 - ✅ Focus can escape component
 - ✅ Tab order preserved
 - ✅ Table rows keyboard accessible (line chart)
 
 #### 5. Screen Reader Support
+
 - ✅ Title announced as heading
 - ✅ Description announced if present
 - ✅ Data table provides text alternative (line chart)
 - ✅ Chart visual hidden from screen readers
 
 #### 6. Color & Contrast
+
 - ✅ Default color (#0ff0fc) meets 4.5:1 ratio
 - ✅ Custom colors tested
 - ✅ Not solely dependent on color (legend includes text)
 
 #### 7. Responsive Design
+
 - ✅ Mobile viewport (< 500px)
 - ✅ Tablet viewport (500-1200px)
 - ✅ Desktop viewport (> 1200px)
 - ✅ Touch targets adequate (48x48px minimum)
 
 #### 8. Reduced Motion Support
+
 - ✅ Respects `prefers-reduced-motion` CSS media query
 - ✅ Component applies Tailwind classes that honor preference
 - ✅ Recharts respects reduced motion
 
 #### 9. Screen Reader Testing (Manual)
+
 **Tested With**:
+
 - ✅ NVDA (Windows) - Data table fully accessible
 - ✅ JAWS (Windows) - Section announced with labels
 - ✅ VoiceOver (macOS) - Heading hierarchy correct
 - ✅ TalkBack (Android) - Mobile interaction functional
 
 **Manual Verification Commands**:
+
 ```bash
 # Visual inspection with Chrome DevTools Accessibility Audit
 # See src/components/analytics/*.tsx for semantic structure
@@ -226,6 +253,7 @@ npm run dev
 **Location**: `docs/PROTOCOL_ANALYTICS_API.md` and `docs/ANALYTICS_COMPONENTS.md`
 
 **API Contract** (`PROTOCOL_ANALYTICS_API.md`):
+
 - ✅ Endpoint specification (method, path, auth)
 - ✅ Request contract (headers, query params, body)
 - ✅ Response schema (200, 404, 500 status codes)
@@ -240,6 +268,7 @@ npm run dev
 - ✅ Testing coverage (unit, integration, manual validation)
 
 **Component Contract** (`ANALYTICS_COMPONENTS.md`):
+
 - ✅ Props interface for both components
 - ✅ Data structure specifications
 - ✅ Rendering behavior (with/without data)
@@ -254,6 +283,7 @@ npm run dev
 - ✅ Recharts integration details
 
 **Consumer Protection**:
+
 - ✅ Clear props interface prevents breaking changes
 - ✅ No removal of documented props without version bump
 - ✅ Backward compatible (all props optional except `title` and `data`)
@@ -263,20 +293,21 @@ npm run dev
 
 **Location**: `tests/api/protocol-analytics.test.ts` and `tests/components/AnalyticsCharts.test.tsx`
 
-| Scenario | # Tests | Coverage |
-|----------|---------|----------|
-| **Success** | 15 | Normal operation, multiple states, aggregation |
-| **Failure** | 12 | Feature disabled, CORS violation, internal errors |
-| **Loading** | 0 | Not applicable (stateless components) |
-| **Empty** | 7 | No commitments, zero values |
-| **Retry** | 0 | Handled at parent level; not component responsibility |
-| **Permission** | 3 | Feature flag as permission control |
-| **Boundary** | 20 | Edge values, NaN/Infinity, precision |
-| **Accessibility** | 28 | WCAG compliance, keyboard, screen reader |
-| **Responsive** | 9 | Mobile, tablet, desktop viewports |
-| **Formatting** | 8 | Currency, percentages, localization |
+| Scenario          | # Tests | Coverage                                              |
+| ----------------- | ------- | ----------------------------------------------------- |
+| **Success**       | 15      | Normal operation, multiple states, aggregation        |
+| **Failure**       | 12      | Feature disabled, CORS violation, internal errors     |
+| **Loading**       | 0       | Not applicable (stateless components)                 |
+| **Empty**         | 7       | No commitments, zero values                           |
+| **Retry**         | 0       | Handled at parent level; not component responsibility |
+| **Permission**    | 3       | Feature flag as permission control                    |
+| **Boundary**      | 20      | Edge values, NaN/Infinity, precision                  |
+| **Accessibility** | 28      | WCAG compliance, keyboard, screen reader              |
+| **Responsive**    | 9       | Mobile, tablet, desktop viewports                     |
+| **Formatting**    | 8       | Currency, percentages, localization                   |
 
 **Validation Commands**:
+
 ```bash
 # Run all analytics tests
 npm run test -- tests/api/protocol-analytics.test.ts tests/components/AnalyticsCharts.test.tsx
@@ -375,6 +406,7 @@ npm run dev
 ### ✅ Criterion 7: Reference Issue with Refs #1796
 
 All files include issue reference:
+
 - PR title: `[#1796] Improve protocol analytics API correctness...`
 - Files document origin from issue #1796
 - Commits reference issue number
@@ -384,17 +416,21 @@ All files include issue reference:
 ## Files Modified/Created
 
 ### New Test Files
+
 - ✅ `tests/api/protocol-analytics.test.ts` (400+ lines, 53 tests)
 - ✅ `tests/components/AnalyticsCharts.test.tsx` (800+ lines, 70+ tests)
 
 ### New Documentation Files
+
 - ✅ `docs/PROTOCOL_ANALYTICS_API.md` (450+ lines)
 - ✅ `docs/ANALYTICS_COMPONENTS.md` (600+ lines)
 
 ### Modified Source Files
+
 - None (feature is already implemented; we're adding regression coverage)
 
 ### No Breaking Changes
+
 - All tests pass with existing implementation
 - No modifications to public APIs
 - Backward compatible
@@ -472,6 +508,7 @@ Coverage: 95%+ line coverage, 90%+ branch coverage for tested areas
 ## Backward Compatibility
 
 ✅ **No Breaking Changes**
+
 - Existing consumers of `/api/analytics/protocol` endpoint unaffected
 - Existing uses of `AnalyticsTrendBarChart` and `AnalyticsTrendLineChart` unaffected
 - All props remain optional except required ones
@@ -569,7 +606,7 @@ npm run test:coverage
 **Code Quality**: ✅ No lint errors, full type safety  
 **Accessibility**: ✅ WCAG 2.1 Level AA compliant  
 **Documentation**: ✅ Comprehensive API & component contracts  
-**Backward Compatibility**: ✅ Fully compatible  
+**Backward Compatibility**: ✅ Fully compatible
 
 **Author**: [Your Name]  
 **Created**: 2026-08-29  

@@ -10,58 +10,61 @@ export function useCommitmentEvents(id) {
   const [error, setError] = useState(null);
   const abortControllerRef = useRef(null);
 
-  const load = useCallback(async (requestedPage) => {
-    if (!id) return;
+  const load = useCallback(
+    async (requestedPage) => {
+      if (!id) return;
 
-    // Abort any in-flight request to avoid race conditions
-    abortControllerRef.current?.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+      // Abort any in-flight request to avoid race conditions
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
-    setStatus('loading');
-    setError(null);
+      setStatus('loading');
+      setError(null);
 
-    try {
-      const response = await fetch(
-        `/api/commitments/${id}/events?page=${requestedPage}&limit=${PAGE_SIZE}`,
-        { signal: controller.signal }
-      );
+      try {
+        const response = await fetch(
+          `/api/commitments/${id}/events?page=${requestedPage}&limit=${PAGE_SIZE}`,
+          { signal: controller.signal },
+        );
 
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-      }
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
 
-      const data = await response.json();
+        const data = await response.json();
 
-      // Normalize and deduplicate events, preserving chronological order
-      const newEvents = Array.isArray(data.data) ? data.data : [];
-      setEvents((prevEvents) => {
-        const combined = requestedPage === 1 ? newEvents : [...prevEvents, ...newEvents];
-        const deduped = Array.from(new Map(combined.map((event) => [event.id, event])).values());
-        // Sort by createdAt descending (newest first) — tie-break by id for full determinism
-        return deduped.sort((a, b) => {
-          const timeDiff = new Date(b.createdAt) - new Date(a.createdAt);
-          if (timeDiff !== 0) return timeDiff;
-          return String(b.id).localeCompare(String(a.id));
+        // Normalize and deduplicate events, preserving chronological order
+        const newEvents = Array.isArray(data.data) ? data.data : [];
+        setEvents((prevEvents) => {
+          const combined = requestedPage === 1 ? newEvents : [...prevEvents, ...newEvents];
+          const deduped = Array.from(new Map(combined.map((event) => [event.id, event])).values());
+          // Sort by createdAt descending (newest first) — tie-break by id for full determinism
+          return deduped.sort((a, b) => {
+            const timeDiff = new Date(b.createdAt) - new Date(a.createdAt);
+            if (timeDiff !== 0) return timeDiff;
+            return String(b.id).localeCompare(String(a.id));
+          });
         });
-      });
 
-      setPage(requestedPage);
-      setHasMore(requestedPage < (data.pagination?.totalPages ?? 1));
-      setStatus('success');
-    } catch (err) {
-      // AbortError is expected when a newer request supersedes this one
-      if (err.name !== 'AbortError') {
-        setError(err);
-        setStatus('error');
+        setPage(requestedPage);
+        setHasMore(requestedPage < (data.pagination?.totalPages ?? 1));
+        setStatus('success');
+      } catch (err) {
+        // AbortError is expected when a newer request supersedes this one
+        if (err.name !== 'AbortError') {
+          setError(err);
+          setStatus('error');
+        }
+      } finally {
+        // Only clear the ref if this controller is still the current one
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
       }
-    } finally {
-      // Only clear the ref if this controller is still the current one
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
-      }
-    }
-  }, [id]);
+    },
+    [id],
+  );
 
   // Initial load whenever id changes
   useEffect(() => {

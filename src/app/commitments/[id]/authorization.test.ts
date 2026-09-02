@@ -68,18 +68,12 @@ describe('isValidCommitmentId', () => {
 
 describe('deriveOwnership', () => {
   it('reports wallet_disconnected when the wallet is not connected', () => {
-    const result = deriveOwnership(
-      { connected: false, address: '', error: null },
-      OWNER_ADDRESS,
-    );
+    const result = deriveOwnership({ connected: false, address: '', error: null }, OWNER_ADDRESS);
     expect(result).toEqual({ kind: 'wallet_disconnected' });
   });
 
   it('reports wallet_disconnected when connected but address is empty', () => {
-    const result = deriveOwnership(
-      { connected: true, address: '', error: null },
-      OWNER_ADDRESS,
-    );
+    const result = deriveOwnership({ connected: true, address: '', error: null }, OWNER_ADDRESS);
     expect(result).toEqual({ kind: 'wallet_disconnected' });
   });
 
@@ -88,7 +82,8 @@ describe('deriveOwnership', () => {
       {
         connected: true,
         address: OWNER_ADDRESS,
-        error: 'Your wallet is connected to the wrong network. Switch Freighter to the correct network and try again.',
+        error:
+          'Your wallet is connected to the wrong network. Switch Freighter to the correct network and try again.',
       },
       OWNER_ADDRESS,
     );
@@ -136,10 +131,12 @@ describe('deriveOwnership', () => {
 
 describe('ownershipDisabledReason', () => {
   it('returns a connect-wallet message for wallet_disconnected', () => {
-    expect(ownershipDisabledReason({ kind: 'wallet_disconnected' })).toMatch(/connect your wallet/i);
+    expect(ownershipDisabledReason({ kind: 'wallet_disconnected' })).toMatch(
+      /connect your wallet/i,
+    );
   });
 
-  it("returns the underlying reason for wrong_network", () => {
+  it('returns the underlying reason for wrong_network', () => {
     expect(ownershipDisabledReason({ kind: 'wrong_network', reason: 'custom message' })).toBe(
       'custom message',
     );

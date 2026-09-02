@@ -19,10 +19,14 @@ const MAX_ACTION_LENGTH = 128;
 
 export async function enforceMarketplaceRateLimit(ip: string, action: string): Promise<void> {
   if (!ip || typeof ip !== 'string' || ip.length > MAX_IP_LENGTH) {
-    throw new Error(`Marketplace rate-limit: ip must be a non-empty string <= ${MAX_IP_LENGTH} chars`);
+    throw new Error(
+      `Marketplace rate-limit: ip must be a non-empty string <= ${MAX_IP_LENGTH} chars`,
+    );
   }
   if (!action || typeof action !== 'string' || action.length > MAX_ACTION_LENGTH) {
-    throw new Error(`Marketplace rate-limit: action must be a non-empty string <= ${MAX_ACTION_LENGTH} chars`);
+    throw new Error(
+      `Marketplace rate-limit: action must be a non-empty string <= ${MAX_ACTION_LENGTH} chars`,
+    );
   }
 
   const start = performance.now();

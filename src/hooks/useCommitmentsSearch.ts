@@ -345,10 +345,7 @@ export function useCommitmentsSearch(
     const rawInterval = options.pollIntervalMs ?? 0;
     if (!rawInterval) return;
 
-    const interval = Math.min(
-      Math.max(rawInterval, MIN_POLL_INTERVAL_MS),
-      MAX_POLL_INTERVAL_MS,
-    );
+    const interval = Math.min(Math.max(rawInterval, MIN_POLL_INTERVAL_MS), MAX_POLL_INTERVAL_MS);
 
     function scheduleNextPoll() {
       pollTimerRef.current = setTimeout(() => {

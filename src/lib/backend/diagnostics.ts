@@ -155,7 +155,8 @@ class DiagnosticsService {
       .filter((m) => m.duration !== undefined)
       .map((m) => m.duration!);
 
-    const avgDuration = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
+    const avgDuration =
+      durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
     const maxDuration = durations.length > 0 ? Math.max(...durations) : 0;
     const minDuration = durations.length > 0 ? Math.min(...durations) : 0;
 
@@ -188,8 +189,9 @@ class DiagnosticsService {
 
     if (recentMetrics.length < 10) return false;
 
-    const degradedCount = recentMetrics.filter((m) => m.status === 'degraded' || m.status === 'failure')
-      .length;
+    const degradedCount = recentMetrics.filter(
+      (m) => m.status === 'degraded' || m.status === 'failure',
+    ).length;
 
     return degradedCount / recentMetrics.length > 0.25; // If >25% recent ops failed/degraded
   }

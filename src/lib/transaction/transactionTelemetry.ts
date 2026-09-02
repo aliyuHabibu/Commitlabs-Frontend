@@ -14,7 +14,7 @@ class TelemetryBuffer {
 
   add(event: TelemetryEvent): void {
     this.events.push(event);
-    
+
     // Enforce size bound
     if (this.events.length > this.maxSize) {
       this.events.shift(); // Remove oldest event
@@ -33,17 +33,17 @@ class TelemetryBuffer {
   }
 
   getEventsByTransactionId(transactionId: string): TelemetryEvent[] {
-    return this.events.filter(e => e.transactionId === transactionId);
+    return this.events.filter((e) => e.transactionId === transactionId);
   }
 
   getEventsByType(type: TelemetryEvent['type']): TelemetryEvent[] {
-    return this.events.filter(e => e.type === type);
+    return this.events.filter((e) => e.type === type);
   }
 
   getEventsByTimeRange(startTime: Date, endTime: Date): TelemetryEvent[] {
     const start = startTime.getTime();
     const end = endTime.getTime();
-    return this.events.filter(e => {
+    return this.events.filter((e) => {
       const eventTime = new Date(e.timestamp).getTime();
       return eventTime >= start && eventTime <= end;
     });
@@ -74,7 +74,7 @@ export function createTelemetryEvent(
     state,
     timestamp: new Date().toISOString(),
   };
-  
+
   if (durationMs !== undefined) {
     event.durationMs = durationMs;
   }
@@ -84,21 +84,23 @@ export function createTelemetryEvent(
   if (context !== undefined) {
     event.context = sanitizeContext(context);
   }
-  
+
   return event;
 }
 
 /**
  * Sanitize context to prevent leaking sensitive information
  */
-function sanitizeContext(context: Record<string, string | number | boolean>): Record<string, string | number | boolean> {
+function sanitizeContext(
+  context: Record<string, string | number | boolean>,
+): Record<string, string | number | boolean> {
   const sanitized: Record<string, string | number | boolean> = {};
   const sensitiveKeys = ['password', 'secret', 'token', 'key', 'private', 'address', 'wallet'];
-  
+
   for (const [key, value] of Object.entries(context)) {
     const lowerKey = key.toLowerCase();
-    const isSensitive = sensitiveKeys.some(sensitive => lowerKey.includes(sensitive));
-    
+    const isSensitive = sensitiveKeys.some((sensitive) => lowerKey.includes(sensitive));
+
     if (isSensitive) {
       sanitized[key] = '[REDACTED]';
     } else if (typeof value === 'string') {
@@ -108,7 +110,7 @@ function sanitizeContext(context: Record<string, string | number | boolean>): Re
       sanitized[key] = value;
     }
   }
-  
+
   return sanitized;
 }
 
@@ -117,12 +119,12 @@ function sanitizeContext(context: Record<string, string | number | boolean>): Re
  */
 export function recordTelemetryEvent(event: TelemetryEvent): void {
   telemetryBuffer.add(event);
-  
+
   // In development, log to console for debugging
-  if (typeof window !== 'undefined' && (window as any).__DEV__) {
+  if (typeof window !== 'undefined' && (window as Window & { __DEV__?: boolean }).__DEV__) {
     console.log('[Transaction Telemetry]', event);
   }
-  
+
   // In production, you could send to analytics service here
   // This is intentionally left as a no-op to avoid external dependencies
 }
@@ -169,7 +171,7 @@ export interface TelemetryStatistics {
 
 export function calculateTelemetryStatistics(): TelemetryStatistics {
   const events = telemetryBuffer.getEvents();
-  
+
   const stats: TelemetryStatistics = {
     totalEvents: events.length,
     eventsByType: {} as Record<TelemetryEvent['type'], number>,
@@ -178,43 +180,44 @@ export function calculateTelemetryStatistics(): TelemetryStatistics {
     averageDurationMs: 0,
     errorRate: 0,
   };
-  
+
   let totalDuration = 0;
   let durationCount = 0;
   let errorCount = 0;
-  
+
   for (const event of events) {
     // Count by type
     stats.eventsByType[event.type] = (stats.eventsByType[event.type] || 0) + 1;
-    
+
     // Count by transaction type
-    stats.eventsByTransactionType[event.transactionType] = (stats.eventsByTransactionType[event.transactionType] || 0) + 1;
-    
+    stats.eventsByTransactionType[event.transactionType] =
+      (stats.eventsByTransactionType[event.transactionType] || 0) + 1;
+
     // Count by state
     stats.eventsByState[event.state] = (stats.eventsByState[event.state] || 0) + 1;
-    
+
     // Calculate duration
     if (event.durationMs !== undefined) {
       totalDuration += event.durationMs;
       durationCount++;
     }
-    
+
     // Count errors
     if (event.errorCode !== undefined) {
       errorCount++;
     }
   }
-  
+
   // Calculate average duration
   if (durationCount > 0) {
     stats.averageDurationMs = totalDuration / durationCount;
   }
-  
+
   // Calculate error rate
   if (events.length > 0) {
     stats.errorRate = errorCount / events.length;
   }
-  
+
   return stats;
 }
 
@@ -236,25 +239,25 @@ export interface TransactionDiagnostics {
 
 export function getTransactionDiagnostics(transactionId: string): TransactionDiagnostics | null {
   const events = telemetryBuffer.getEventsByTransactionId(transactionId);
-  
+
   if (events.length === 0) {
     return null;
   }
-  
-  const sortedEvents = [...events].sort((a, b) => 
-    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+
+  const sortedEvents = [...events].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
-  
+
   const firstEvent = sortedEvents[0];
   const lastEvent = sortedEvents[sortedEvents.length - 1];
-  
+
   if (!firstEvent || !lastEvent) {
     return null;
   }
-  
+
   const stateTransitions: TransactionDiagnostics['stateTransitions'] = [];
   let previousState: TransactionState | null = null;
-  
+
   for (const event of sortedEvents) {
     if (event.type === 'state_transition' && previousState !== null) {
       stateTransitions.push({
@@ -265,10 +268,10 @@ export function getTransactionDiagnostics(transactionId: string): TransactionDia
     }
     previousState = event.state;
   }
-  
-  const errorEvents = events.filter(e => e.errorCode !== undefined);
+
+  const errorEvents = events.filter((e) => e.errorCode !== undefined);
   const lastErrorEvent = errorEvents.length > 0 ? errorEvents[errorEvents.length - 1] : undefined;
-  
+
   return {
     transactionId,
     transactionType: firstEvent.transactionType,
@@ -297,10 +300,10 @@ export interface PerformanceMetrics {
 
 export function calculatePerformanceMetrics(): PerformanceMetrics {
   const events = telemetryBuffer.getEvents();
-  const completedEvents = events.filter(e => 
-    e.type === 'transaction_confirmed' || e.type === 'transaction_failed'
+  const completedEvents = events.filter(
+    (e) => e.type === 'transaction_confirmed' || e.type === 'transaction_failed',
   );
-  
+
   if (completedEvents.length === 0) {
     return {
       averageTransactionTime: 0,
@@ -311,28 +314,23 @@ export function calculatePerformanceMetrics(): PerformanceMetrics {
       timeoutRate: 0,
     };
   }
-  
+
   const durations = completedEvents
-    .map(e => e.durationMs ?? 0)
-    .filter(d => d > 0)
+    .map((e) => e.durationMs ?? 0)
+    .filter((d) => d > 0)
     .sort((a, b) => a - b);
-  
-  const successCount = events.filter(e => e.type === 'transaction_confirmed').length;
-  const failureCount = events.filter(e => e.type === 'transaction_failed').length;
-  const timeoutCount = events.filter(e => e.errorCode === 'POLLING_TIMEOUT').length;
-  
-  const average = durations.length > 0 
-    ? durations.reduce((sum, d) => sum + d, 0) / durations.length 
-    : 0;
-  
-  const median = durations.length > 0 
-    ? durations[Math.floor(durations.length / 2)] 
-    : 0;
-  
-  const p95 = durations.length > 0 
-    ? durations[Math.floor(durations.length * 0.95)] 
-    : 0;
-  
+
+  const successCount = events.filter((e) => e.type === 'transaction_confirmed').length;
+  const failureCount = events.filter((e) => e.type === 'transaction_failed').length;
+  const timeoutCount = events.filter((e) => e.errorCode === 'POLLING_TIMEOUT').length;
+
+  const average =
+    durations.length > 0 ? durations.reduce((sum, d) => sum + d, 0) / durations.length : 0;
+
+  const median = durations.length > 0 ? durations[Math.floor(durations.length / 2)] : 0;
+
+  const p95 = durations.length > 0 ? durations[Math.floor(durations.length * 0.95)] : 0;
+
   return {
     averageTransactionTime: average,
     medianTransactionTime: median,
@@ -350,7 +348,7 @@ export function exportTelemetryData(): string {
   const events = telemetryBuffer.getEvents();
   const stats = calculateTelemetryStatistics();
   const metrics = calculatePerformanceMetrics();
-  
+
   const exportData = {
     exportedAt: new Date().toISOString(),
     eventCount: events.length,
@@ -358,6 +356,6 @@ export function exportTelemetryData(): string {
     performanceMetrics: metrics,
     events: events, // Already sanitized
   };
-  
+
   return JSON.stringify(exportData, null, 2);
 }

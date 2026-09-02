@@ -18,11 +18,11 @@ vi.mock('@/lib/backend/services/contracts', () => ({
 }));
 
 import { GET } from '@/app/api/commitments/search/route';
-import { requireAuth } from '@/lib/backend/requireAuth';
+import { requireAuth, type AuthenticatedRequest } from '@/lib/backend/requireAuth';
 import { checkRateLimit } from '@/lib/backend/rateLimit';
 import { getUserCommitmentsFromChain } from '@/lib/backend/services/contracts';
 import type { ChainCommitment } from '@/lib/backend/services/contracts';
-import { UnauthorizedError, ForbiddenError } from '@/lib/backend/errors';
+import { UnauthorizedError } from '@/lib/backend/errors';
 import { cache } from '@/lib/backend/cache/factory';
 
 const mockedRequireAuth = vi.mocked(requireAuth);
@@ -93,8 +93,11 @@ describe('GET /api/commitments/search', () => {
     // Return a mock authenticated request whose `.user.address` matches the
     // VALID_ADDRESS used in all default requests. Tests that need to verify
     // scope enforcement (403) override this mock locally.
-    mockedRequireAuth.mockImplementation((req) =>
-      Object.assign(req, { user: { address: VALID_ADDRESS, csrfToken: 'tok' } }) as any,
+    mockedRequireAuth.mockImplementation(
+      (req) =>
+        Object.assign(req, {
+          user: { address: VALID_ADDRESS, csrfToken: 'tok' },
+        }) as AuthenticatedRequest,
     );
     mockedCheckRateLimit.mockResolvedValue(true);
     mockedGetUserCommitmentsFromChain.mockResolvedValue(ALL_COMMITMENTS);
@@ -176,7 +179,7 @@ describe('GET /api/commitments/search', () => {
       const result = await parseResponse(response);
 
       expect(result.data.data.data).toHaveLength(2);
-      expect(result.data.data.data.every((c: any) => c.asset === 'USDC')).toBe(true);
+      expect(result.data.data.data.every((c: { asset: string }) => c.asset === 'USDC')).toBe(true);
     });
 
     it('filters by status', async () => {
@@ -228,7 +231,7 @@ describe('GET /api/commitments/search', () => {
       const response = await GET(createMockRequest(getUrl({ sortBy: 'amount', sortOrder: 'asc' })));
       const result = await parseResponse(response);
 
-      expect(result.data.data.data.map((c: any) => c.commitmentId)).toEqual([
+      expect(result.data.data.data.map((c: { commitmentId: string }) => c.commitmentId)).toEqual([
         'cm_cheap_old',
         'cm_mid_new',
         'cm_expensive_mid',
@@ -241,7 +244,7 @@ describe('GET /api/commitments/search', () => {
       );
       const result = await parseResponse(response);
 
-      expect(result.data.data.data.map((c: any) => c.commitmentId)).toEqual([
+      expect(result.data.data.data.map((c: { commitmentId: string }) => c.commitmentId)).toEqual([
         'cm_expensive_mid',
         'cm_mid_new',
         'cm_cheap_old',
@@ -252,7 +255,7 @@ describe('GET /api/commitments/search', () => {
       const response = await GET(createMockRequest(getUrl()));
       const result = await parseResponse(response);
 
-      expect(result.data.data.data.map((c: any) => c.commitmentId)).toEqual([
+      expect(result.data.data.data.map((c: { commitmentId: string }) => c.commitmentId)).toEqual([
         'cm_mid_new',
         'cm_expensive_mid',
         'cm_cheap_old',
@@ -268,7 +271,10 @@ describe('GET /api/commitments/search', () => {
       const response = await GET(createMockRequest(getUrl({ sortBy: 'amount', sortOrder: 'asc' })));
       const result = await parseResponse(response);
 
-      expect(result.data.data.data.map((c: any) => c.commitmentId)).toEqual(['cm_a', 'cm_b']);
+      expect(result.data.data.data.map((c: { commitmentId: string }) => c.commitmentId)).toEqual([
+        'cm_a',
+        'cm_b',
+      ]);
     });
   });
 
@@ -371,8 +377,11 @@ describe('GET /api/commitments/search', () => {
     it('returns 403 when the authenticated address does not match ownerAddress', async () => {
       // Auth succeeds but the authenticated wallet is a different address.
       const OTHER_ADDRESS = `G${'B'.repeat(55)}`;
-      mockedRequireAuth.mockImplementation((req) =>
-        Object.assign(req, { user: { address: OTHER_ADDRESS, csrfToken: 'tok' } }) as any,
+      mockedRequireAuth.mockImplementation(
+        (req) =>
+          Object.assign(req, {
+            user: { address: OTHER_ADDRESS, csrfToken: 'tok' },
+          }) as AuthenticatedRequest,
       );
 
       const response = await GET(createMockRequest(getUrl()));
@@ -397,8 +406,11 @@ describe('GET /api/commitments/search', () => {
 
     it('scope check fires after auth and rate-limit but before chain work', async () => {
       const OTHER_ADDRESS = `G${'C'.repeat(55)}`;
-      mockedRequireAuth.mockImplementation((req) =>
-        Object.assign(req, { user: { address: OTHER_ADDRESS, csrfToken: 'tok' } }) as any,
+      mockedRequireAuth.mockImplementation(
+        (req) =>
+          Object.assign(req, {
+            user: { address: OTHER_ADDRESS, csrfToken: 'tok' },
+          }) as AuthenticatedRequest,
       );
 
       await GET(createMockRequest(getUrl()));

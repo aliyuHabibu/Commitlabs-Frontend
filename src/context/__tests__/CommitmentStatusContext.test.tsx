@@ -5,10 +5,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, act } from '@testing-library/react';
-import {
-  CommitmentStatusProvider,
-  useCommitmentStatus,
-} from '@/context/CommitmentStatusContext';
+import { CommitmentStatusProvider, useCommitmentStatus } from '@/context/CommitmentStatusContext';
 
 // ---------------------------------------------------------------------------
 // Test consumer component

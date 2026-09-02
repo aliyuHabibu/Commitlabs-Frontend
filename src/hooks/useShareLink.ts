@@ -19,7 +19,11 @@ interface UseShareLinkReturn {
  * to the clipboard. Falls back gracefully when the Clipboard API is
  * unavailable.
  */
-export function useShareLink({ commitmentId, title, text }: UseShareLinkOptions): UseShareLinkReturn {
+export function useShareLink({
+  commitmentId,
+  title,
+  text,
+}: UseShareLinkOptions): UseShareLinkReturn {
   const [isSharing, setIsSharing] = useState(false);
   const { success, error: showError } = useToast();
 

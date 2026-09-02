@@ -216,7 +216,18 @@ export default function CreateCommitment() {
       maxLossPercent,
     };
     saveDraft(currentDraft);
-  }, [step, selectedType, commitmentType, amount, asset, durationDays, maxLossPercent, saveDraft, showSuccessModal, isSubmitting]);
+  }, [
+    step,
+    selectedType,
+    commitmentType,
+    amount,
+    asset,
+    durationDays,
+    maxLossPercent,
+    saveDraft,
+    showSuccessModal,
+    isSubmitting,
+  ]);
 
   // Build review data from actual configured values
   const getReviewData = () => {
@@ -322,7 +333,12 @@ export default function CreateCommitment() {
   };
 
   const handleSubmit = () => {
-    if (isSubmitting || showSuccessModal || submitStatusRef.current === 'submitting' || submitStatusRef.current === 'success') {
+    if (
+      isSubmitting ||
+      showSuccessModal ||
+      submitStatusRef.current === 'submitting' ||
+      submitStatusRef.current === 'success'
+    ) {
       return;
     }
     if (showResumePrompt) {
@@ -411,8 +427,6 @@ export default function CreateCommitment() {
   const handleFundLater = () => {
     setShowSuccessModal(false);
     const numericId = commitmentId.split('-')[1] || '1';
-    router.push(`/commitments/${numericId}`);
-  };entId.split('-')[1] || '1';
     router.push(`/commitments/${numericId}`);
   };
 

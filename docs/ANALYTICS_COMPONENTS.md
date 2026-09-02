@@ -25,12 +25,14 @@ The Analytics components (`AnalyticsTrendBarChart` and `AnalyticsTrendLineChart`
 **Purpose**: Display aggregate or trend-based data using Recharts, with built-in accessibility support.
 
 **Consumers**:
+
 - Protocol analytics dashboard
 - Overview widgets
 - Admin reporting pages
 - Mobile and desktop views
 
 **Key Features**:
+
 - ✅ Accessible (WCAG 2.1 Level AA)
 - ✅ Responsive (mobile to desktop)
 - ✅ Screen reader support with data tables
@@ -74,8 +76,8 @@ interface AnalyticsTrendBarChartProps {
 }
 
 interface BarDataPoint {
-  label: string;  // Category label (e.g., "Active", "Settled")
-  value: number;  // Numeric value for this category
+  label: string; // Category label (e.g., "Active", "Settled")
+  value: number; // Numeric value for this category
 }
 ```
 
@@ -101,17 +103,17 @@ interface BarDataPoint {
 
 ✅ **WCAG 2.1 Level AA Compliant**
 
-| Aspect | Guarantee |
-|--------|-----------|
-| **Semantic HTML** | Uses `<section>`, `<h3>`, `<p>` elements |
-| **Labeling** | Section has `aria-label` matching title |
-| **Heading Hierarchy** | H3 used for titles (parent should use H1-H2) |
-| **Color Contrast** | Chart colors meet 4.5:1 ratio (verified in design) |
-| **Screen Readers** | Title and description announced; table fallback available (future) |
-| **Keyboard** | Section is not interactive; parent can tab through |
-| **Reduced Motion** | Respects `prefers-reduced-motion` in CSS |
-| **Focus Management** | Focus not trapped; inherited from Recharts |
-| **Mobile** | Responsive; touch-friendly on mobile viewports |
+| Aspect                | Guarantee                                                          |
+| --------------------- | ------------------------------------------------------------------ |
+| **Semantic HTML**     | Uses `<section>`, `<h3>`, `<p>` elements                           |
+| **Labeling**          | Section has `aria-label` matching title                            |
+| **Heading Hierarchy** | H3 used for titles (parent should use H1-H2)                       |
+| **Color Contrast**    | Chart colors meet 4.5:1 ratio (verified in design)                 |
+| **Screen Readers**    | Title and description announced; table fallback available (future) |
+| **Keyboard**          | Section is not interactive; parent can tab through                 |
+| **Reduced Motion**    | Respects `prefers-reduced-motion` in CSS                           |
+| **Focus Management**  | Focus not trapped; inherited from Recharts                         |
+| **Mobile**            | Responsive; touch-friendly on mobile viewports                     |
 
 ### Usage Examples
 
@@ -158,7 +160,7 @@ interface BarDataPoint {
 **Invariant 1**: Title always displayed (even with empty data)  
 **Invariant 2**: Chart SVG only rendered when `data.length > 0`  
 **Invariant 3**: Description paragraph rendered only when provided  
-**Invariant 4**: Focus never trapped inside chart  
+**Invariant 4**: Focus never trapped inside chart
 
 ---
 
@@ -198,8 +200,8 @@ interface AnalyticsTrendLineChartProps {
 }
 
 interface TrendDataPoint {
-  label: string;  // Time period label (e.g., "Week 1", "Jan 2025")
-  value: number;  // Metric value for this period
+  label: string; // Time period label (e.g., "Week 1", "Jan 2025")
+  value: number; // Metric value for this period
 }
 ```
 
@@ -227,19 +229,19 @@ interface TrendDataPoint {
 
 ✅ **WCAG 2.1 Level AA Compliant** with enhanced support
 
-| Aspect | Guarantee |
-|--------|-----------|
-| **Semantic HTML** | Uses `<section>`, `<h3>`, `<table>`, `<caption>`, `<th>` |
-| **Labeling** | Section and table properly labeled; caption matches title |
-| **Text Alternatives** | Data table provides full text alternative to chart |
-| **Screen Readers** | All data points accessible via table; chart visual hidden with `aria-hidden="true"` |
-| **Heading Hierarchy** | H3 for title; proper heading structure |
-| **Table Structure** | Proper `<thead>`, `<tbody>`, `<th scope="col">` for columns |
-| **Color Contrast** | Line color meets 4.5:1 ratio |
-| **Keyboard** | Fully keyboard navigable; table keyboard accessible |
-| **Reduced Motion** | Respects CSS media query preference |
-| **Mobile** | Responsive; table scrollable on small screens |
-| **Focus Management** | Focus not trapped |
+| Aspect                | Guarantee                                                                           |
+| --------------------- | ----------------------------------------------------------------------------------- |
+| **Semantic HTML**     | Uses `<section>`, `<h3>`, `<table>`, `<caption>`, `<th>`                            |
+| **Labeling**          | Section and table properly labeled; caption matches title                           |
+| **Text Alternatives** | Data table provides full text alternative to chart                                  |
+| **Screen Readers**    | All data points accessible via table; chart visual hidden with `aria-hidden="true"` |
+| **Heading Hierarchy** | H3 for title; proper heading structure                                              |
+| **Table Structure**   | Proper `<thead>`, `<tbody>`, `<th scope="col">` for columns                         |
+| **Color Contrast**    | Line color meets 4.5:1 ratio                                                        |
+| **Keyboard**          | Fully keyboard navigable; table keyboard accessible                                 |
+| **Reduced Motion**    | Respects CSS media query preference                                                 |
+| **Mobile**            | Responsive; table scrollable on small screens                                       |
+| **Focus Management**  | Focus not trapped                                                                   |
 
 ### Usage Examples
 
@@ -287,7 +289,7 @@ interface TrendDataPoint {
 **Invariant 4**: Table caption matches title  
 **Invariant 5**: All data points visible in table (no truncation, no pagination)  
 **Invariant 6**: Visual chart hidden from screen readers (`aria-hidden="true"`)  
-**Invariant 7**: Table rows maintain data point order  
+**Invariant 7**: Table rows maintain data point order
 
 ---
 
@@ -300,6 +302,7 @@ Both components share common props:
 The chart title, displayed as an `<h3>` heading and used as `aria-label`.
 
 **Constraints**:
+
 - Must be non-empty
 - Used in multiple places (visual, aria-label, table caption)
 - Should be concise (< 50 characters recommended)
@@ -309,12 +312,14 @@ The chart title, displayed as an `<h3>` heading and used as `aria-label`.
 Array of data points to display.
 
 **Constraints**:
+
 - Can be empty `[]` (renders empty state)
 - Each point has `label` (string) and `value` (number)
 - Order is preserved in rendering
 - No automatic sorting
 
 **Behavior**:
+
 - Empty array: Chart SVG not rendered; empty state graceful
 - Non-empty: Chart rendered with all points
 
@@ -323,6 +328,7 @@ Array of data points to display.
 Label for the value axis and legend. Defaults to `'Value'`.
 
 **Used In**:
+
 - Legend display
 - Table header (line chart)
 - Tooltip labels
@@ -332,11 +338,13 @@ Label for the value axis and legend. Defaults to `'Value'`.
 Color for bars/line. Defaults to `'#0ff0fc'` (teal).
 
 **Accepted Formats**:
+
 - Hex: `'#0ff0fc'`
 - RGB: `'rgb(15, 240, 252)'`
 - Named: `'teal'`
 
 **Constraints**:
+
 - Must be CSS-valid color
 - Should have sufficient contrast (4.5:1)
 
@@ -345,11 +353,13 @@ Color for bars/line. Defaults to `'#0ff0fc'` (teal).
 Function to format numeric values in tooltips and tables.
 
 **Default**:
+
 ```typescript
-(v: number) => v.toLocaleString()
+(v: number) => v.toLocaleString();
 ```
 
 **Examples**:
+
 ```typescript
 // Currency
 (v) => `$${v.toLocaleString()}`
@@ -366,6 +376,7 @@ Function to format numeric values in tooltips and tables.
 Accessible description of the chart. Displayed as a `<p>` element below the title.
 
 **Use Cases**:
+
 - Explain what the chart measures
 - Provide context (e.g., "Data from last 30 days")
 - Include units or important caveats
@@ -378,12 +389,13 @@ Accessible description of the chart. Displayed as a `<p>` element below the titl
 
 ```typescript
 interface BarDataPoint {
-  label: string;  // Category name (e.g., "Active", "USDC", "North America")
-  value: number;  // Numeric value (must be finite)
+  label: string; // Category name (e.g., "Active", "USDC", "North America")
+  value: number; // Numeric value (must be finite)
 }
 ```
 
 **Constraints**:
+
 - `label`: Non-empty string
 - `value`: Finite number (not NaN, Infinity)
 
@@ -391,12 +403,13 @@ interface BarDataPoint {
 
 ```typescript
 interface TrendDataPoint {
-  label: string;  // Time period or sequence (e.g., "Week 1", "Jan 2025", "Day 1")
-  value: number;  // Metric value (must be finite)
+  label: string; // Time period or sequence (e.g., "Week 1", "Jan 2025", "Day 1")
+  value: number; // Metric value (must be finite)
 }
 ```
 
 **Constraints**:
+
 - Same as BarDataPoint
 - Order represents progression (not auto-sorted)
 
@@ -438,12 +451,14 @@ Both components are tested and verified to meet WCAG 2.1 Level AA standards:
 ### Screen Reader Testing
 
 **Tested With**:
+
 - ✅ NVDA (Windows)
 - ✅ JAWS (Windows)
 - ✅ VoiceOver (macOS, iOS)
 - ✅ TalkBack (Android)
 
 **Behavior**:
+
 1. Section announced with `aria-label`
 2. Title read as heading (level 3)
 3. Description read if present
@@ -453,11 +468,13 @@ Both components are tested and verified to meet WCAG 2.1 Level AA standards:
 ### Keyboard Navigation
 
 **Focus Order**:
+
 - Section receives focus if it contains interactive elements
 - Data table (if present) is fully keyboard navigable
 - Tab/Shift+Tab move through table cells and controls
 
 **No Keyboard Traps**:
+
 - Focus can always escape the component
 - Charts do not trap focus inside visualizations
 
@@ -473,6 +490,7 @@ Both components respect the `prefers-reduced-motion` CSS media query:
 ```
 
 **Behavior**:
+
 - Users with motion sensitivity see static charts
 - No automatic transitions or animations
 - Responsive behavior unchanged
@@ -490,33 +508,36 @@ Both components respect the `prefers-reduced-motion` CSS media query:
 
 ### Rendering Rules
 
-| Condition | Bar Chart | Line Chart |
-|-----------|-----------|-----------|
-| `data.length > 0` | Render chart SVG + legend | Render chart SVG + legend + table |
-| `data.length === 0` | No SVG | No SVG, no table |
-| Title provided | Always render title | Always render title |
-| Description provided | Render `<p>` with description | Render `<p>` with description |
-| `color` prop | Use for bars | Use for line and dots |
-| `seriesLabel` prop | Show in legend | Show in legend and table header |
-| `valueFormatter` prop | Apply in tooltips | Apply in tooltips and table |
+| Condition             | Bar Chart                     | Line Chart                        |
+| --------------------- | ----------------------------- | --------------------------------- |
+| `data.length > 0`     | Render chart SVG + legend     | Render chart SVG + legend + table |
+| `data.length === 0`   | No SVG                        | No SVG, no table                  |
+| Title provided        | Always render title           | Always render title               |
+| Description provided  | Render `<p>` with description | Render `<p>` with description     |
+| `color` prop          | Use for bars                  | Use for line and dots             |
+| `seriesLabel` prop    | Show in legend                | Show in legend and table header   |
+| `valueFormatter` prop | Apply in tooltips             | Apply in tooltips and table       |
 
 ### Recharts Integration
 
 Both components use **Recharts** for visualization:
 
 **Bar Chart Components**:
+
 - `BarChart`, `Bar`
 - `XAxis`, `YAxis`
 - `CartesianGrid`, `Legend`
 - `Tooltip`, `ResponsiveContainer`
 
 **Line Chart Components**:
+
 - `LineChart`, `Line`
 - `XAxis`, `YAxis`
 - `CartesianGrid`, `Legend`
 - `Tooltip`, `ResponsiveContainer`
 
 **Features Used**:
+
 - Responsive container (100% width)
 - Custom tooltips with formatting
 - Legend with custom rendering
@@ -526,11 +547,13 @@ Both components use **Recharts** for visualization:
 ### Error Handling
 
 **Invalid Props**:
+
 - Invalid `color`: Component still renders; fallback to default
 - Invalid `valueFormatter`: Falls back to `toLocaleString()`
 - Empty `title`: Component renders but title is empty (edge case)
 
 **Invalid Data**:
+
 - NaN values: Excluded by Recharts
 - Infinity values: Excluded by Recharts
 - Missing `label` or `value`: Undefined behavior (test fixtures prevent this)
@@ -542,6 +565,7 @@ Both components use **Recharts** for visualization:
 ### No Local State
 
 Both components are **pure, stateless functional components**:
+
 - No `useState` hooks
 - No `useEffect` side effects
 - No class state
@@ -550,6 +574,7 @@ Both components are **pure, stateless functional components**:
 ### Parent Responsibility
 
 Parents must manage:
+
 - Data fetching
 - Loading states
 - Error states
@@ -637,34 +662,34 @@ function Dashboard() {
 
 #### AnalyticsTrendBarChart
 
-| Category | # Tests | Examples |
-|----------|---------|----------|
-| Rendering | 5 | title rendering, section structure, aria-label |
-| Data rendering | 3 | chart SVG, series label, description |
-| Empty state | 3 | graceful rendering, no SVG, title present |
-| Formatting | 3 | default formatter, custom formatter, colors |
-| Accessibility | 5 | axe checks, heading hierarchy, semantic HTML |
-| Keyboard | 2 | keyboard accessibility, no focus trap |
-| Screen reader | 2 | title announcement, description support |
-| Responsive | 3 | mobile, desktop, description on all viewports |
-| Reduced motion | 1 | CSS classes present |
+| Category       | # Tests | Examples                                       |
+| -------------- | ------- | ---------------------------------------------- |
+| Rendering      | 5       | title rendering, section structure, aria-label |
+| Data rendering | 3       | chart SVG, series label, description           |
+| Empty state    | 3       | graceful rendering, no SVG, title present      |
+| Formatting     | 3       | default formatter, custom formatter, colors    |
+| Accessibility  | 5       | axe checks, heading hierarchy, semantic HTML   |
+| Keyboard       | 2       | keyboard accessibility, no focus trap          |
+| Screen reader  | 2       | title announcement, description support        |
+| Responsive     | 3       | mobile, desktop, description on all viewports  |
+| Reduced motion | 1       | CSS classes present                            |
 
 #### AnalyticsTrendLineChart
 
-| Category | # Tests | Examples |
-|----------|---------|----------|
-| Rendering | 3 | title, section, aria-label |
-| Chart SVG | 1 | SVG renders with data |
-| Data table | 6 | table structure, headers, data points, caption, sr-only class, aria-label |
-| Empty state | 4 | graceful rendering, no SVG, no table, title present |
-| Custom formatting | 2 | value formatter, series label |
-| Accessibility | 4 | axe checks, heading hierarchy, semantic HTML, section structure |
-| Table structure | 3 | thead/tbody/caption, th with scope, sr-only class |
-| Keyboard | 1 | keyboard navigable |
-| Screen reader | 2 | title announcement, accessible table |
-| Responsive | 3 | mobile, desktop, description |
-| Reduced motion | 1 | respects CSS |
-| Data accuracy | 3 | single point, multiple points, order preservation |
+| Category          | # Tests | Examples                                                                  |
+| ----------------- | ------- | ------------------------------------------------------------------------- |
+| Rendering         | 3       | title, section, aria-label                                                |
+| Chart SVG         | 1       | SVG renders with data                                                     |
+| Data table        | 6       | table structure, headers, data points, caption, sr-only class, aria-label |
+| Empty state       | 4       | graceful rendering, no SVG, no table, title present                       |
+| Custom formatting | 2       | value formatter, series label                                             |
+| Accessibility     | 4       | axe checks, heading hierarchy, semantic HTML, section structure           |
+| Table structure   | 3       | thead/tbody/caption, th with scope, sr-only class                         |
+| Keyboard          | 1       | keyboard navigable                                                        |
+| Screen reader     | 2       | title announcement, accessible table                                      |
+| Responsive        | 3       | mobile, desktop, description                                              |
+| Reduced motion    | 1       | respects CSS                                                              |
+| Data accuracy     | 3       | single point, multiple points, order preservation                         |
 
 ### Total Test Count
 
@@ -701,12 +726,14 @@ function Dashboard() {
 ### Updating Components
 
 **Safe Changes**:
+
 - ✅ Adding new optional props
 - ✅ Changing internal CSS classes
 - ✅ Optimizing performance (memoization, etc.)
 - ✅ Adding more test coverage
 
 **Breaking Changes** (require version bump):
+
 - ❌ Removing props
 - ❌ Changing required props to optional
 - ❌ Changing response types

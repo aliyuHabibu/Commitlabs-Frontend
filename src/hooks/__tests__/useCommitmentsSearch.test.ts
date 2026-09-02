@@ -83,12 +83,8 @@ function makeItem(id: string): Record<string, unknown> {
 
 // ─── Mock fetch ─────────────────────────────────────────────────────────────
 
-function mockFetch(
-  handler: (url: string, init?: RequestInit) => Promise<Response>,
-) {
-  return vi.spyOn(global, 'fetch').mockImplementation(
-    handler as typeof fetch,
-  );
+function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Response>) {
+  return vi.spyOn(global, 'fetch').mockImplementation(handler as typeof fetch);
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

@@ -32,7 +32,8 @@ const DEFAULT_RETRY_INTERVAL = 3000;
 const MIN_INTERVAL = 1000;
 
 let eventCounter = 0;
-export const getEventId = (prefix: string) => `evt-${prefix}-${Date.now().toString(36)}-${++eventCounter}`;
+export const getEventId = (prefix: string) =>
+  `evt-${prefix}-${Date.now().toString(36)}-${++eventCounter}`;
 
 const EVENTS_CORS_POLICY = {
   GET: { access: 'first-party' },
@@ -40,7 +41,7 @@ const EVENTS_CORS_POLICY = {
 
 export const OPTIONS = createCorsOptionsHandler(EVENTS_CORS_POLICY);
 
-export function mapStatus(status: any): CommitmentStatus | 'Unknown' {
+export function mapStatus(status: string): CommitmentStatus | 'Unknown' {
   switch (status) {
     case 'ACTIVE':
       return 'Active';
@@ -141,10 +142,7 @@ export const GET = withApiHandler(
 
         let lastStatus = mapStatus(initialCommitment.status);
 
-        const retryIntervalMs = validateInterval(
-          process.env.SSE_RETRY_MS,
-          DEFAULT_RETRY_INTERVAL,
-        );
+        const retryIntervalMs = validateInterval(process.env.SSE_RETRY_MS, DEFAULT_RETRY_INTERVAL);
         const snapshotPayload = {
           commitmentId,
           status: lastStatus,

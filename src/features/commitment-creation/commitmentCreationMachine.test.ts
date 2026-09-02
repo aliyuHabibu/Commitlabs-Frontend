@@ -141,7 +141,12 @@ describe('commitment creation state machine', () => {
 
   it('resumes a draft into editing state', () => {
     const s: DraftState = { status: 'draft' };
-    const next = rduceState(s, { type: 'RESUME', draftId: 'draft-1', step: 2, data: { amount: '5' } });
+    const next = rduceState(s, {
+      type: 'RESUME',
+      draftId: 'draft-1',
+      step: 2,
+      data: { amount: '5' },
+    });
     expect(next.status).toBe('draft');
     expect(next.draftId).toBe('draft-1');
     expect(next.step).toBe(2);

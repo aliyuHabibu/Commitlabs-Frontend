@@ -25,7 +25,8 @@ The Protocol Analytics API provides aggregate, protocol-wide metrics computed fr
 
 **Purpose**: Enable dashboards, reporting, and monitoring of global protocol health metrics.
 
-**Consumers**: 
+**Consumers**:
+
 - Frontend dashboard components (analytics pages, overview widgets)
 - Admin reporting tools
 - Protocol monitoring systems
@@ -46,10 +47,10 @@ GET /api/analytics/protocol
 
 ### HTTP Headers
 
-| Header | Required | Value | Notes |
-|--------|----------|-------|-------|
-| `Content-Type` | No | `application/json` | Auto-added by client |
-| `Origin` | No | Any | CORS first-party policy enforced |
+| Header         | Required | Value              | Notes                            |
+| -------------- | -------- | ------------------ | -------------------------------- |
+| `Content-Type` | No       | `application/json` | Auto-added by client             |
+| `Origin`       | No       | Any                | CORS first-party policy enforced |
 
 ### Query Parameters
 
@@ -89,17 +90,17 @@ None. Request body is ignored.
 
 ### Response Schema
 
-| Field | Type | Range | Description | Invariants |
-|-------|------|-------|-------------|-----------|
-| `totalCommitments` | number | [0, ∞) | Total count of all commitments | Sum of status breakdowns ≤ totalCommitments |
-| `activeCommitments` | number | [0, ∞) | Count of ACTIVE status commitments | ≤ totalCommitments |
-| `settledCommitments` | number | [0, ∞) | Count of SETTLED status commitments | ≤ totalCommitments |
-| `violatedCommitments` | number | [0, ∞) | Count of VIOLATED status commitments | ≤ totalCommitments |
-| `totalValueLocked` | string (numeric) | "0.00" to "999...999.99" | Sum of all commitment amounts (formatted with 2 decimals) | Always 2 decimal places; skips non-finite values |
-| `totalFeesEarned` | string (numeric) | "0.00" to "999...999.99" | Sum of all feeEarned (formatted with 2 decimals) | Always 2 decimal places; skips non-finite values |
-| `averageComplianceScore` | number | [0, 100] | Average complianceScore across all commitments | Rounded to 2 decimal places; 0 if no commitments |
-| `totalViolations` | number | [0, ∞) | Sum of violationCount across all commitments | Always ≥ 0 |
-| `uniqueOwners` | number | [0, ∞) | Count of unique owner addresses (filters out empty strings) | ≤ totalCommitments |
+| Field                    | Type             | Range                    | Description                                                 | Invariants                                       |
+| ------------------------ | ---------------- | ------------------------ | ----------------------------------------------------------- | ------------------------------------------------ |
+| `totalCommitments`       | number           | [0, ∞)                   | Total count of all commitments                              | Sum of status breakdowns ≤ totalCommitments      |
+| `activeCommitments`      | number           | [0, ∞)                   | Count of ACTIVE status commitments                          | ≤ totalCommitments                               |
+| `settledCommitments`     | number           | [0, ∞)                   | Count of SETTLED status commitments                         | ≤ totalCommitments                               |
+| `violatedCommitments`    | number           | [0, ∞)                   | Count of VIOLATED status commitments                        | ≤ totalCommitments                               |
+| `totalValueLocked`       | string (numeric) | "0.00" to "999...999.99" | Sum of all commitment amounts (formatted with 2 decimals)   | Always 2 decimal places; skips non-finite values |
+| `totalFeesEarned`        | string (numeric) | "0.00" to "999...999.99" | Sum of all feeEarned (formatted with 2 decimals)            | Always 2 decimal places; skips non-finite values |
+| `averageComplianceScore` | number           | [0, 100]                 | Average complianceScore across all commitments              | Rounded to 2 decimal places; 0 if no commitments |
+| `totalViolations`        | number           | [0, ∞)                   | Sum of violationCount across all commitments                | Always ≥ 0                                       |
+| `uniqueOwners`           | number           | [0, ∞)                   | Count of unique owner addresses (filters out empty strings) | ≤ totalCommitments                               |
 
 ### Error Responses
 
@@ -162,9 +163,9 @@ The endpoint requires the `analyticsProtocol` feature flag to be enabled.
 
 **Environment Variable**: `COMMITLABS_FEATURE_ANALYTICS_PROTOCOL`
 
-| Value | Behavior |
-|-------|----------|
-| `'true'` | Endpoint returns 200 with analytics data |
+| Value              | Behavior                                  |
+| ------------------ | ----------------------------------------- |
+| `'true'`           | Endpoint returns 200 with analytics data  |
 | `'false'` or unset | Endpoint returns 404 with NOT_FOUND error |
 
 **Reason**: Allows safe gradual rollout and easy disabling if issues arise.
@@ -174,6 +175,7 @@ The endpoint requires the `analyticsProtocol` feature flag to be enabled.
 **Policy Type**: `first-party` (same-origin only)
 
 **Details**:
+
 - Only requests from the same origin as the frontend are allowed
 - Cross-origin requests are rejected
 - Credentials are not included in requests
@@ -197,11 +199,11 @@ All errors follow the backend error response format:
 
 ### Error Codes
 
-| Code | Status | Cause |
-|------|--------|-------|
-| `NOT_FOUND` | 404 | Feature flag disabled |
-| `CORS_POLICY_VIOLATION` | 400 | CORS policy violation |
-| `INTERNAL_ERROR` | 500 | Commitment fetch or computation error |
+| Code                    | Status | Cause                                 |
+| ----------------------- | ------ | ------------------------------------- |
+| `NOT_FOUND`             | 404    | Feature flag disabled                 |
+| `CORS_POLICY_VIOLATION` | 400    | CORS policy violation                 |
+| `INTERNAL_ERROR`        | 500    | Commitment fetch or computation error |
 
 ### Retry Strategy
 
@@ -301,10 +303,10 @@ Multiple identical requests to the endpoint return identical data
 
 ### Data Sources
 
-| Environment | Source | Fallback |
-|-------------|--------|----------|
-| `NEXT_PUBLIC_USE_MOCKS='true'` | Mock database (`getMockData()`) | Empty array on fetch error |
-| Production | Soroban contract RPC | Empty array (contract doesn't expose method yet) |
+| Environment                    | Source                          | Fallback                                         |
+| ------------------------------ | ------------------------------- | ------------------------------------------------ |
+| `NEXT_PUBLIC_USE_MOCKS='true'` | Mock database (`getMockData()`) | Empty array on fetch error                       |
+| Production                     | Soroban contract RPC            | Empty array (contract doesn't expose method yet) |
 
 ### Computation Flow
 
@@ -334,12 +336,14 @@ function sumNumericStringField(
 ```
 
 **Behavior**:
+
 - Converts string to number
 - Skips non-finite values (NaN, Infinity, -Infinity)
 - Accumulates only valid numbers
 - Formats result with 2 decimal places
 
-**Why This Approach**: 
+**Why This Approach**:
+
 - Resilient to malformed data
 - Consistent financial formatting
 - Transparent about skipped values
@@ -348,16 +352,16 @@ function sumNumericStringField(
 
 ### Unit Tests (`tests/api/protocol-analytics.test.ts`)
 
-| Category | Cases |
-|----------|-------|
-| `buildProtocolAnalytics()` | 40+ tests |
-| Success scenarios | Single & multiple commitments, status filtering, aggregation |
-| Boundary cases | Empty list, zero values, unknown statuses |
-| Null/undefined handling | NaN, Infinity values, invalid strings |
-| Precision | Decimal formatting, large/small numbers |
-| Response invariants | Type validation, range checks, immutability |
-| GET endpoint | Feature flag gating, CORS, method enforcement |
-| Error handling | 404, 500, normalization |
+| Category                   | Cases                                                        |
+| -------------------------- | ------------------------------------------------------------ |
+| `buildProtocolAnalytics()` | 40+ tests                                                    |
+| Success scenarios          | Single & multiple commitments, status filtering, aggregation |
+| Boundary cases             | Empty list, zero values, unknown statuses                    |
+| Null/undefined handling    | NaN, Infinity values, invalid strings                        |
+| Precision                  | Decimal formatting, large/small numbers                      |
+| Response invariants        | Type validation, range checks, immutability                  |
+| GET endpoint               | Feature flag gating, CORS, method enforcement                |
+| Error handling             | 404, 500, normalization                                      |
 
 ### Integration Tests
 
@@ -403,6 +407,7 @@ curl -X POST http://localhost:3000/api/analytics/protocol # Should return 405
 **Decision**: Fallback to empty array (return zeros) on production data fetch errors.
 
 **Tradeoff**:
+
 - ✅ **Pro**: Frontend never breaks; graceful degradation
 - ❌ **Con**: Silent failures; production data issues not immediately obvious
 
@@ -413,6 +418,7 @@ curl -X POST http://localhost:3000/api/analytics/protocol # Should return 405
 **Decision**: Return `totalValueLocked` and `totalFeesEarned` as strings.
 
 **Tradeoff**:
+
 - ✅ **Pro**: Avoids floating-point precision errors; explicit decimal formatting
 - ❌ **Con**: Requires client-side parsing
 
@@ -423,6 +429,7 @@ curl -X POST http://localhost:3000/api/analytics/protocol # Should return 405
 **Decision**: Single aggregated response; no pagination or breakdown.
 
 **Tradeoff**:
+
 - ✅ **Pro**: Simple API; fast response for current scale
 - ❌ **Con**: Doesn't scale for millions of commitments
 

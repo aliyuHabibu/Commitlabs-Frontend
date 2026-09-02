@@ -32,7 +32,10 @@ function SkeletonCard() {
   );
 }
 
-function fetchStateToBannerInfo(state: ListingsFetchState, error: { message?: string; retryable?: boolean } | null) {
+function fetchStateToBannerInfo(
+  state: ListingsFetchState,
+  error: { message?: string; retryable?: boolean } | null,
+) {
   switch (state) {
     case 'ERROR_STALE':
       return {
@@ -71,7 +74,7 @@ export const MarketplaceGrid = memo(function MarketplaceGrid({
   queryParams = {},
   sortFn,
   filterFn,
-  onStateChange,
+  onStateChange: _onStateChange,
 }: MarketplaceGridProps) {
   const safeOnCompareToggle = useCallback(
     (listing: MarketplaceCardProps) => {
@@ -151,23 +154,27 @@ export const MarketplaceGrid = memo(function MarketplaceGrid({
 
   useEffect(() => {
     if (items || !hasMore) return;
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          if (loadMoreInFlightRef.current) return;
-          if (state === 'LOADING_MORE' || state === 'LOADING_INITIAL' || state === 'REFRESHING') return;
-          if (lastLoadMoreGenRef.current === generationRef.current) return;
-          lastLoadMoreGenRef.current = generationRef.current;
-          loadMoreInFlightRef.current = true;
-          loadMore().finally(() => {
-            loadMoreInFlightRef.current = false;
-          });
-        }
-      });
-    }, {
-      rootMargin: '200px 0px',
-      threshold: 0.01,
-    });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            if (loadMoreInFlightRef.current) return;
+            if (state === 'LOADING_MORE' || state === 'LOADING_INITIAL' || state === 'REFRESHING')
+              return;
+            if (lastLoadMoreGenRef.current === generationRef.current) return;
+            lastLoadMoreGenRef.current = generationRef.current;
+            loadMoreInFlightRef.current = true;
+            loadMore().finally(() => {
+              loadMoreInFlightRef.current = false;
+            });
+          }
+        });
+      },
+      {
+        rootMargin: '200px 0px',
+        threshold: 0.01,
+      },
+    );
     if (sentinelRef.current) observer.observe(sentinelRef.current);
     return () => observer.disconnect();
   }, [items, hasMore, loadMore, state]);
@@ -185,18 +192,19 @@ export const MarketplaceGrid = memo(function MarketplaceGrid({
   const banner = !items ? fetchStateToBannerInfo(state, error) : null;
 
   const showSkeleton = !items && isLoadingInitial;
-  const skeletonCount = showSkeleton ? Math.min(LOADING_SKELETON_COUNT, Math.max(displayedItems.length, LOADING_SKELETON_COUNT)) : LOADING_SKELETON_COUNT;
+  const skeletonCount = showSkeleton
+    ? Math.min(LOADING_SKELETON_COUNT, Math.max(displayedItems.length, LOADING_SKELETON_COUNT))
+    : LOADING_SKELETON_COUNT;
 
   if (showSkeleton && displayedItems.length === 0) {
     return (
       <section className="mt-6" aria-label="Marketplace listings" aria-busy="true">
         <ul
           aria-label="Loading marketplace listings"
-          role="list"
           className="list-none p-0 m-0 grid grid-cols-3 gap-6 max-[1024px]:grid-cols-2 max-[720px]:grid-cols-1"
         >
           {Array.from({ length: skeletonCount }).map((_, i) => (
-            <li key={`sk-${i}`} role="listitem">
+            <li key={`sk-${i}`}>
               <SkeletonCard />
             </li>
           ))}
@@ -255,7 +263,7 @@ export const MarketplaceGrid = memo(function MarketplaceGrid({
 
   return (
     <section className="mt-6" aria-label="Marketplace listings" aria-busy={isLoading}>
-      {(banner) && (
+      {banner && (
         <div
           role={banner.tone === 'critical' ? 'alert' : 'status'}
           aria-live={banner.tone === 'critical' ? 'assertive' : 'polite'}
@@ -270,7 +278,9 @@ export const MarketplaceGrid = memo(function MarketplaceGrid({
         >
           <div className="text-sm">
             {banner.title && (
-              <span className="font-medium text-[rgba(255,255,255,0.92)] mr-2">{banner.title}.</span>
+              <span className="font-medium text-[rgba(255,255,255,0.92)] mr-2">
+                {banner.title}.
+              </span>
             )}
             <span className="text-[rgba(255,255,255,0.72)]">{banner.message}</span>
           </div>
@@ -287,10 +297,7 @@ export const MarketplaceGrid = memo(function MarketplaceGrid({
         </div>
       )}
 
-      <ul
-        className="list-none p-0 m-0 grid grid-cols-3 gap-6 max-[1024px]:grid-cols-2 max-[720px]:grid-cols-1"
-        role="list"
-      >
+      <ul className="list-none p-0 m-0 grid grid-cols-3 gap-6 max-[1024px]:grid-cols-2 max-[720px]:grid-cols-1">
         {displayedItems.map((item) => {
           const compareSelected = safeIsComparePinned(item.id);
           return (
@@ -302,7 +309,6 @@ export const MarketplaceGrid = memo(function MarketplaceGrid({
                   ? { contentVisibility: 'auto', containIntrinsicSize: '0 320px' }
                   : undefined
               }
-              role="listitem"
             >
               <MarketplaceCard
                 {...item}
@@ -318,7 +324,10 @@ export const MarketplaceGrid = memo(function MarketplaceGrid({
         {isLoadingMore && hasMore && !items && (
           <li className="col-span-full flex justify-center py-4" aria-live="polite">
             <div className="flex items-center gap-3 text-sm text-[rgba(255,255,255,0.70)]">
-              <span className="inline-block h-4 w-4 rounded-full border-2 border-[rgba(0,212,255,0.45)] border-t-transparent animate-spin" aria-hidden="true" />
+              <span
+                className="inline-block h-4 w-4 rounded-full border-2 border-[rgba(0,212,255,0.45)] border-t-transparent animate-spin"
+                aria-hidden="true"
+              />
               Loading more listings…
             </div>
           </li>

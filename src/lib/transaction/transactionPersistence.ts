@@ -3,19 +3,13 @@
  * Uses localStorage with explicit bounds, validation, and cleanup.
  */
 
-import type {
-  TransactionMetadata,
-  TransactionError,
-} from './transactionTypes';
+import type { TransactionMetadata, TransactionError } from './transactionTypes';
 import {
   TRANSACTION_BOUNDS,
   TransactionErrorType,
   createTransactionError,
 } from './transactionTypes';
-import {
-  validateTransactionMetadata,
-  isTransactionStale,
-} from './transactionStateMachine';
+import { validateTransactionMetadata, isTransactionStale } from './transactionStateMachine';
 
 /**
  * Storage key prefix for transaction data
@@ -46,12 +40,14 @@ function getCommitmentIndexKey(commitmentId: string): string {
  */
 function serializeTransaction(metadata: TransactionMetadata): string {
   const json = JSON.stringify(metadata);
-  
+
   // Invariant: Enforce size bounds
   if (json.length > TRANSACTION_BOUNDS.MAX_METADATA_SIZE_BYTES) {
-    throw new Error(`Transaction metadata exceeds maximum size of ${TRANSACTION_BOUNDS.MAX_METADATA_SIZE_BYTES} bytes`);
+    throw new Error(
+      `Transaction metadata exceeds maximum size of ${TRANSACTION_BOUNDS.MAX_METADATA_SIZE_BYTES} bytes`,
+    );
   }
-  
+
   return json;
 }
 
@@ -67,7 +63,9 @@ function deserializeTransaction(json: string): TransactionMetadata {
     }
     return metadata;
   } catch (error) {
-    throw new Error(`Failed to deserialize transaction: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to deserialize transaction: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -84,16 +82,16 @@ export function saveTransaction(metadata: TransactionMetadata): TransactionError
 
     const key = getStorageKey(metadata.id);
     const serialized = serializeTransaction(metadata);
-    
+
     // Save transaction
     localStorage.setItem(key, serialized);
-    
+
     // Update commitment index
     updateCommitmentIndex(metadata.commitmentId, metadata.id);
-    
+
     // Cleanup stale transactions
     cleanupStaleTransactions(metadata.commitmentId);
-    
+
     return null;
   } catch (error) {
     return createTransactionError(
@@ -112,19 +110,19 @@ export function loadTransaction(transactionId: string): TransactionMetadata | nu
   try {
     const key = getStorageKey(transactionId);
     const serialized = localStorage.getItem(key);
-    
+
     if (!serialized) {
       return null;
     }
-    
+
     const metadata = deserializeTransaction(serialized);
-    
+
     // Check if transaction is stale
     if (isTransactionStale(metadata)) {
       deleteTransaction(transactionId);
       return null;
     }
-    
+
     return metadata;
   } catch {
     // If loading fails, delete the corrupted data
@@ -139,15 +137,15 @@ export function loadTransaction(transactionId: string): TransactionMetadata | nu
 export function deleteTransaction(transactionId: string): void {
   const key = getStorageKey(transactionId);
   localStorage.removeItem(key);
-  
+
   // Also remove from any commitment indices
   try {
     const allKeys = Object.keys(localStorage);
-    const indexKeys = allKeys.filter(k => k.startsWith(`${STORAGE_KEY_PREFIX}index_`));
-    
+    const indexKeys = allKeys.filter((k) => k.startsWith(`${STORAGE_KEY_PREFIX}index_`));
+
     for (const indexKey of indexKeys) {
       const index = JSON.parse(localStorage.getItem(indexKey) || '[]') as string[];
-      const updatedIndex = index.filter(id => id !== transactionId);
+      const updatedIndex = index.filter((id) => id !== transactionId);
       localStorage.setItem(indexKey, JSON.stringify(updatedIndex));
     }
   } catch {
@@ -161,11 +159,11 @@ export function deleteTransaction(transactionId: string): void {
 function updateCommitmentIndex(commitmentId: string, transactionId: string): void {
   const indexKey = getCommitmentIndexKey(commitmentId);
   const existingIndex = JSON.parse(localStorage.getItem(indexKey) || '[]') as string[];
-  
+
   // Add transaction ID if not already present
   if (!existingIndex.includes(transactionId)) {
     existingIndex.unshift(transactionId); // Add to front
-    
+
     // Enforce bound on number of transactions per commitment
     if (existingIndex.length > MAX_TRANSACTIONS_PER_COMMITMENT) {
       const removedId = existingIndex.pop();
@@ -173,7 +171,7 @@ function updateCommitmentIndex(commitmentId: string, transactionId: string): voi
         deleteTransaction(removedId);
       }
     }
-    
+
     localStorage.setItem(indexKey, JSON.stringify(existingIndex));
   }
 }
@@ -185,7 +183,7 @@ export function getCommitmentTransactions(commitmentId: string): TransactionMeta
   try {
     const indexKey = getCommitmentIndexKey(commitmentId);
     const index = JSON.parse(localStorage.getItem(indexKey) || '[]') as string[];
-    
+
     const transactions: TransactionMetadata[] = [];
     for (const transactionId of index) {
       const metadata = loadTransaction(transactionId);
@@ -193,7 +191,7 @@ export function getCommitmentTransactions(commitmentId: string): TransactionMeta
         transactions.push(metadata);
       }
     }
-    
+
     return transactions;
   } catch {
     return [];
@@ -208,10 +206,10 @@ export function getLatestTransaction(commitmentId: string): TransactionMetadata 
   if (transactions.length === 0) {
     return null;
   }
-  
+
   // Sort by updated timestamp descending
-  const sorted = transactions.sort((a, b) => 
-    new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  const sorted = transactions.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
   );
   return sorted[0] ?? null;
 }
@@ -224,7 +222,7 @@ export function hasActiveTransaction(commitmentId: string): boolean {
   if (!latest) {
     return false;
   }
-  
+
   // Active if not in terminal state and not stale
   return !['confirmed', 'failed'].includes(latest.state) && !isTransactionStale(latest);
 }
@@ -245,14 +243,14 @@ export function updateTransactionState(
       transactionId,
     );
   }
-  
+
   const updatedMetadata: TransactionMetadata = {
     ...metadata,
     state: newState,
     updatedAt: new Date().toISOString(),
     ...additionalFields,
   };
-  
+
   return saveTransaction(updatedMetadata);
 }
 
@@ -261,7 +259,7 @@ export function updateTransactionState(
  */
 export function cleanupStaleTransactions(commitmentId: string): void {
   const transactions = getCommitmentTransactions(commitmentId);
-  
+
   for (const transaction of transactions) {
     if (isTransactionStale(transaction)) {
       deleteTransaction(transaction.id);
@@ -275,8 +273,10 @@ export function cleanupStaleTransactions(commitmentId: string): void {
 export function cleanupAllStaleTransactions(): void {
   try {
     const allKeys = Object.keys(localStorage);
-    const transactionKeys = allKeys.filter(k => k.startsWith(STORAGE_KEY_PREFIX) && !k.includes('index_'));
-    
+    const transactionKeys = allKeys.filter(
+      (k) => k.startsWith(STORAGE_KEY_PREFIX) && !k.includes('index_'),
+    );
+
     for (const key of transactionKeys) {
       const serialized = localStorage.getItem(key);
       if (serialized) {
@@ -302,8 +302,8 @@ export function cleanupAllStaleTransactions(): void {
 export function clearAllTransactions(): void {
   try {
     const allKeys = Object.keys(localStorage);
-    const transactionKeys = allKeys.filter(k => k.startsWith(STORAGE_KEY_PREFIX));
-    
+    const transactionKeys = allKeys.filter((k) => k.startsWith(STORAGE_KEY_PREFIX));
+
     for (const key of transactionKeys) {
       localStorage.removeItem(key);
     }
@@ -332,7 +332,7 @@ export function transactionExists(transactionId: string): boolean {
 export function initializePersistence(): void {
   // Cleanup stale transactions on initialization
   cleanupAllStaleTransactions();
-  
+
   // Listen for storage events from other tabs
   if (typeof window !== 'undefined' && window.addEventListener) {
     window.addEventListener('storage', (event) => {

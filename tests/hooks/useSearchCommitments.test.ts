@@ -287,14 +287,12 @@ describe('useSearchCommitments', () => {
       resolveFirst = resolve;
     });
 
-    fetchMock
-      .mockReturnValueOnce(firstFetch)
-      .mockResolvedValueOnce(
-        new Response(makeSuccessBody([{ commitmentId: 'cm_NEW' }]), {
-          status: 200,
-          headers: makeHeaders(),
-        }),
-      );
+    fetchMock.mockReturnValueOnce(firstFetch).mockResolvedValueOnce(
+      new Response(makeSuccessBody([{ commitmentId: 'cm_NEW' }]), {
+        status: 200,
+        headers: makeHeaders(),
+      }),
+    );
 
     const { result } = renderHook(() => useSearchCommitments({ debounceMs: 0 }));
 
@@ -322,7 +320,8 @@ describe('useSearchCommitments', () => {
     });
 
     // The stale response must not overwrite the current data
-    const ids = result.current.data?.data.map((c: any) => c.commitmentId) ?? [];
+    const ids =
+      result.current.data?.data.map((c: { commitmentId: string }) => c.commitmentId) ?? [];
     expect(ids).not.toContain('cm_STALE');
   });
 

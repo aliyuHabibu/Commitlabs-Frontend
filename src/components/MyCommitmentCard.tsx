@@ -78,9 +78,7 @@ const MyCommitmentCard: React.FC<MyCommitmentCardProps> = memo(
             <span
               className={[
                 'flex h-4 w-4 items-center justify-center rounded border',
-                isSelected
-                  ? 'border-[#0FF0FC] bg-[#0FF0FC]/20'
-                  : 'border-white/20 bg-white/5',
+                isSelected ? 'border-[#0FF0FC] bg-[#0FF0FC]/20' : 'border-white/20 bg-white/5',
               ].join(' ')}
             >
               {isSelected && (
@@ -134,7 +132,11 @@ const MyCommitmentCard: React.FC<MyCommitmentCardProps> = memo(
                 {currentValue}
                 {changePercent !== undefined && (
                   <span
-                    className={changePercent >= 0 ? 'text-emerald-400 text-[11px] ml-1' : 'text-red-400 text-[11px] ml-1'}
+                    className={
+                      changePercent >= 0
+                        ? 'text-emerald-400 text-[11px] ml-1'
+                        : 'text-red-400 text-[11px] ml-1'
+                    }
                   >
                     {changePercent >= 0 ? '+' : ''}
                     {changePercent.toFixed(2)}%

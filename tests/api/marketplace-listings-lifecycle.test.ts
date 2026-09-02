@@ -34,10 +34,7 @@ vi.mock('@/lib/backend/logger', () => ({
 
 // ─── Real imports ─────────────────────────────────────────────────────────────
 
-import {
-  MemoryStorageAdapter,
-  configureStorageAdapterForTests,
-} from '@/lib/backend/storage';
+import { MemoryStorageAdapter, configureStorageAdapterForTests } from '@/lib/backend/storage';
 import { ConflictError, NotFoundError } from '@/lib/backend/errors';
 
 // Import class — not the singleton — so we can construct a fresh instance per test.
@@ -109,9 +106,9 @@ describe('Marketplace listing lifecycle integration', () => {
     it('returns 409 when attempting to create a duplicate Active listing for the same commitment', async () => {
       await marketplaceService.createListing(BASE_CREATE_REQUEST);
 
-      await expect(
-        marketplaceService.createListing(BASE_CREATE_REQUEST),
-      ).rejects.toThrow(ConflictError);
+      await expect(marketplaceService.createListing(BASE_CREATE_REQUEST)).rejects.toThrow(
+        ConflictError,
+      );
     });
 
     it('duplicate listing error includes existingListingId in details', async () => {
@@ -222,9 +219,7 @@ describe('Marketplace listing lifecycle integration', () => {
     });
 
     it('double markSold throws ConflictError (idempotency guard)', async () => {
-      await expect(
-        marketplaceService.markSold(listingId, BUYER),
-      ).rejects.toThrow(ConflictError);
+      await expect(marketplaceService.markSold(listingId, BUYER)).rejects.toThrow(ConflictError);
     });
 
     it('double markSold conflict error mentions "already been sold"', async () => {
@@ -238,9 +233,9 @@ describe('Marketplace listing lifecycle integration', () => {
     });
 
     it('sold listing cannot be cancelled (ConflictError)', async () => {
-      await expect(
-        marketplaceService.cancelListing(listingId, SELLER),
-      ).rejects.toThrow(ConflictError);
+      await expect(marketplaceService.cancelListing(listingId, SELLER)).rejects.toThrow(
+        ConflictError,
+      );
     });
 
     it('a new listing for the same commitment can be created after the previous one is sold', async () => {
@@ -249,9 +244,9 @@ describe('Marketplace listing lifecycle integration', () => {
       // Current impl does NOT remove the active-listing pointer on markSold,
       // so we expect a ConflictError here and document it as a known limitation.
       // If future code removes the pointer, change this to expect resolution.
-      await expect(
-        marketplaceService.createListing(BASE_CREATE_REQUEST),
-      ).rejects.toThrow(ConflictError);
+      await expect(marketplaceService.createListing(BASE_CREATE_REQUEST)).rejects.toThrow(
+        ConflictError,
+      );
     });
   });
 
@@ -274,9 +269,7 @@ describe('Marketplace listing lifecycle integration', () => {
     });
 
     it('markSold throws ConflictError for a cancelled listing', async () => {
-      await expect(
-        marketplaceService.markSold(listingId, BUYER),
-      ).rejects.toThrow(ConflictError);
+      await expect(marketplaceService.markSold(listingId, BUYER)).rejects.toThrow(ConflictError);
     });
   });
 
@@ -300,9 +293,9 @@ describe('Marketplace listing lifecycle integration', () => {
 
   describe('7. Error handling', () => {
     it('markSold throws NotFoundError for non-existent listing', async () => {
-      await expect(
-        marketplaceService.markSold('no-such-listing', BUYER),
-      ).rejects.toThrow(NotFoundError);
+      await expect(marketplaceService.markSold('no-such-listing', BUYER)).rejects.toThrow(
+        NotFoundError,
+      );
     });
 
     it('getListing returns null for unknown listingId', async () => {
@@ -311,9 +304,9 @@ describe('Marketplace listing lifecycle integration', () => {
     });
 
     it('cancelListing throws NotFoundError for unknown listingId', async () => {
-      await expect(
-        marketplaceService.cancelListing('ghost-listing', SELLER),
-      ).rejects.toThrow(NotFoundError);
+      await expect(marketplaceService.cancelListing('ghost-listing', SELLER)).rejects.toThrow(
+        NotFoundError,
+      );
     });
   });
 });

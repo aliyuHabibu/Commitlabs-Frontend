@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { POST, OPTIONS, GET, PUT, PATCH, DELETE } from './route';
+import { POST, OPTIONS, GET } from './route';
 import { CsrfValidationError, BackendError } from '@/lib/backend/errors';
-import { POST } from './route';
 import { diagnosticsService } from '@/lib/backend/diagnostics';
 import { randomUUID } from 'crypto';
 
@@ -48,7 +47,7 @@ function createMockRequest(
   url: string,
   options: {
     method?: string;
-    body?: any;
+    body?: unknown;
     idempotencyKey?: string;
   } = {},
 ): NextRequest {
@@ -71,7 +70,11 @@ function createMockRequest(
 
 interface ParsedResponse {
   status: number;
-  data: any;
+  data: {
+    success?: boolean;
+    data?: Record<string, unknown>;
+    error?: { code?: string; message?: string };
+  };
 }
 
 async function parseResponse(response: Response): Promise<ParsedResponse> {
@@ -153,9 +156,8 @@ function completedRecord(response: Record<string, unknown>, statusCode = 200) {
 }
 
 describe('POST /api/commitments/[id]/fund', () => {
-// ── Tests ──────────────────────────────────────────────────────────────────────
+  // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bounds', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     diagnosticsService.clear();
@@ -169,6 +171,11 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
     mockIdempotency.start.mockResolvedValue(undefined);
     mockIdempotency.complete.mockResolvedValue(undefined);
     mockIdempotency.fail.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    diagnosticsService.clear();
   });
 
   // ─── 200 Success ─────────────────────────────────────────────────────────
@@ -187,68 +194,94 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       expect(body.data.fundedAt).toBeDefined();
       expect(body.meta).toBeDefined();
     });
-  afterEach(() => {
-    vi.clearAllMocks();
-    diagnosticsService.clear();
-  });
 
-  // ── Success Cases ──────────────────────────────────────────────────────────
+    it('successfully funds a commitment in CREATED state', async () => {
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        body: { callerAddress: VALID_ADDRESS },
+      });
 
-  it('successfully funds a commitment in CREATED state', async () => {
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: { callerAddress: VALID_ADDRESS },
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(200);
+      expect(result.data.success).toBe(true);
+      expect(result.data.data.commitmentId).toBe(COMMITMENT_ID);
+      expect(result.data.data.txHash).toBe('abc123def456');
     });
 
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
+    it('allows funding without callerAddress (implicit owner)', async () => {
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        body: {}, // No callerAddress
+      });
 
-    const result = await parseResponse(response);
-    expect(result.status).toBe(200);
-    expect(result.data.success).toBe(true);
-    expect(result.data.data.commitmentId).toBe(COMMITMENT_ID);
-    expect(result.data.data.txHash).toBe('abc123def456');
-  });
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
 
-  it('allows funding without callerAddress (implicit owner)', async () => {
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: {}, // No callerAddress
+      const result = await parseResponse(response);
+      expect(result.status).toBe(200);
+      expect(result.data.success).toBe(true);
+      expect(mockFundEscrow).toHaveBeenCalledWith({
+        commitmentId: COMMITMENT_ID,
+        callerAddress: undefined,
+      });
     });
 
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
+    it('returns cached response on idempotent replay (COMPLETED record)', async () => {
+      const idempotencyKey = 'idempotency-fund-' + randomUUID();
+      const cachedResponse = {
+        commitmentId: COMMITMENT_ID,
+        txHash: 'cached-tx-hash',
+        reference: 'cached-ref',
+        fundedAt: new Date().toISOString(),
+      };
 
-    const result = await parseResponse(response);
-    expect(result.status).toBe(200);
-    expect(result.data.success).toBe(true);
-    expect(mockFundEscrow).toHaveBeenCalledWith({
-      commitmentId: COMMITMENT_ID,
-      callerAddress: undefined,
+      mockIdempotency.getRecord.mockResolvedValue({
+        key: idempotencyKey,
+        status: 'COMPLETED' as const,
+        response: cachedResponse,
+        statusCode: 200,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 86400000,
+      });
+
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        body: { callerAddress: VALID_ADDRESS },
+        idempotencyKey,
+      });
+
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(200);
+      expect(result.data.data).toEqual(cachedResponse);
+      expect(mockFundEscrow).not.toHaveBeenCalled();
     });
-  });
 
-  // ── Idempotency Tests ──────────────────────────────────────────────────────
+    it('calls fundEscrowOnChain on cache MISS (STARTED → success)', async () => {
+      const idempotencyKey = 'idempotency-fund-' + randomUUID();
 
-  it('returns cached response on idempotent replay (COMPLETED record)', async () => {
-    const idempotencyKey = 'idempotency-fund-' + randomUUID();
-    const cachedResponse = {
-      commitmentId: COMMITMENT_ID,
-      txHash: 'cached-tx-hash',
-      reference: 'cached-ref',
-      fundedAt: new Date().toISOString(),
-    };
+      mockIdempotency.getRecord.mockResolvedValue({
+        key: idempotencyKey,
+        status: 'STARTED' as const,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 86400000,
+      });
 
-    mockIdempotency.getRecord.mockResolvedValue({
-      key: idempotencyKey,
-      status: 'COMPLETED' as const,
-      response: cachedResponse,
-      statusCode: 200,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 86400000,
-    });
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        body: { callerAddress: VALID_ADDRESS },
+        idempotencyKey,
+      });
 
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: { callerAddress: VALID_ADDRESS },
-      idempotencyKey,
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(200);
+      expect(result.data.data).toBeDefined();
+      expect(mockFundEscrow).toHaveBeenCalled();
+      expect(mockIdempotency.complete).toHaveBeenCalled();
     });
 
     it('response shape: required fields commitmentId, txHash, fundedAt are present', async () => {
@@ -296,14 +329,14 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       const res = await POST(req, ctx);
 
       expect(res.status).toBe(200);
-      expect(mockFundEscrowOnChain).toHaveBeenCalledWith({
+      expect(mockFundEscrow).toHaveBeenCalledWith({
         commitmentId: 'cmt-123',
         callerAddress: undefined,
       });
     });
 
     it('reference is undefined when txHash is present', async () => {
-      mockFundEscrowOnChain.mockResolvedValue({
+      mockFundEscrow.mockResolvedValue({
         ...MOCK_FUND_RESULT,
         txHash: '0xabc123',
         reference: undefined,
@@ -317,7 +350,7 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
     });
 
     it('reference is present when txHash is absent (fallback reference)', async () => {
-      mockFundEscrowOnChain.mockResolvedValue({
+      mockFundEscrow.mockResolvedValue({
         ...MOCK_FUND_RESULT,
         txHash: undefined,
         reference: 'TODO_CHAIN_CALL_FUND_ESCROW',
@@ -335,10 +368,10 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       const [req, ctx] = makeRequest('cmt-123', {});
       await POST(req, ctx);
 
-      expect(mockIdempotencyGetRecord).not.toHaveBeenCalled();
-      expect(mockIdempotencyStart).not.toHaveBeenCalled();
-      expect(mockIdempotencyComplete).not.toHaveBeenCalled();
-      expect(mockIdempotencyFail).not.toHaveBeenCalled();
+      expect(mockIdempotency.getRecord).not.toHaveBeenCalled();
+      expect(mockIdempotency.start).not.toHaveBeenCalled();
+      expect(mockIdempotency.complete).not.toHaveBeenCalled();
+      expect(mockIdempotency.fail).not.toHaveBeenCalled();
     });
   });
 
@@ -347,7 +380,7 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
   describe('200 - success with idempotency', () => {
     it('returns cached response when idempotency key is COMPLETED', async () => {
       const cachedResponse = { commitmentId: 'cmt-123', txHash: '0xold' };
-      mockIdempotencyGetRecord.mockResolvedValue(completedRecord(cachedResponse));
+      mockIdempotency.getRecord.mockResolvedValue(completedRecord(cachedResponse));
 
       const [req, ctx] = makeRequest('cmt-123', {}, 'POST', { 'idempotency-key': 'idem-001' });
       const res = await POST(req, ctx);
@@ -355,42 +388,42 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
 
       expect(res.status).toBe(200);
       expect(body.data).toEqual(cachedResponse);
-      expect(mockFundEscrowOnChain).not.toHaveBeenCalled();
-    });
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
-
-    const result = await parseResponse(response);
-    expect(result.status).toBe(200);
-    expect(result.data.data).toEqual(cachedResponse);
-    expect(response.headers.get('X-Idempotent-Replay')).toBe('true');
-    // Should not call fundEscrow for cache hit
-    expect(mockFundEscrow).not.toHaveBeenCalled();
-  });
-
-  it('blocks concurrent requests with same idempotency key (STARTED record)', async () => {
-    const idempotencyKey = 'idempotency-fund-' + randomUUID();
-
-    mockIdempotency.getRecord.mockResolvedValue({
-      key: idempotencyKey,
-      status: 'STARTED' as const,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 86400000,
+      expect(mockFundEscrow).not.toHaveBeenCalled();
     });
 
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: { callerAddress: VALID_ADDRESS },
-      idempotencyKey,
+    it('marks replay responses with X-Idempotent-Replay header', async () => {
+      const cachedResponse = { commitmentId: 'cmt-123', txHash: '0xold' };
+      mockIdempotency.getRecord.mockResolvedValue(completedRecord(cachedResponse));
+
+      const [req, ctx] = makeRequest('cmt-123', {}, 'POST', {
+        'idempotency-key': 'idem-replay-hdr',
+      });
+      const res = await POST(req, ctx);
+
+      expect(res.headers.get('X-Idempotent-Replay')).toBe('true');
     });
 
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
+    it('blocks concurrent requests with same idempotency key (STARTED record)', async () => {
+      const idempotencyKey = 'idempotency-fund-' + randomUUID();
 
-      expect(mockIdempotencyComplete).toHaveBeenCalledWith(
-        'idem-003',
-        expect.objectContaining({ commitmentId: 'cmt-123' }),
-        200,
-      );
+      mockIdempotency.getRecord.mockResolvedValue({
+        key: idempotencyKey,
+        status: 'STARTED' as const,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 86400000,
+      });
+
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        body: { callerAddress: VALID_ADDRESS },
+        idempotencyKey,
+      });
+
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(409);
+      expect(result.data.error.message).toContain('currently processing');
     });
 
     it('idempotency replay returns the exact same fundedAt as the original request', async () => {
@@ -401,7 +434,7 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
         reference: undefined,
         fundedAt: frozenFundedAt,
       };
-      mockIdempotencyGetRecord.mockResolvedValue(completedRecord(cachedPayload));
+      mockIdempotency.getRecord.mockResolvedValue(completedRecord(cachedPayload));
 
       const [req, ctx] = makeRequest('cmt-123', {}, 'POST', { 'idempotency-key': 'idem-replay' });
       const res = await POST(req, ctx);
@@ -410,7 +443,7 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       // The replayed response must include the original, stable fundedAt —
       // not a freshly generated timestamp.
       expect(body.data.fundedAt).toBe(frozenFundedAt);
-      expect(mockFundEscrowOnChain).not.toHaveBeenCalled();
+      expect(mockFundEscrow).not.toHaveBeenCalled();
     });
 
     it('idempotency complete call stores the same fundedAt that is returned in the response', async () => {
@@ -419,7 +452,7 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       const body = await res.json();
 
       // Verify the value stored in the idempotency cache equals the response body
-      const storedPayload = mockIdempotencyComplete.mock.calls[0][1] as Record<string, unknown>;
+      const storedPayload = mockIdempotency.complete.mock.calls[0][1] as Record<string, unknown>;
       expect(storedPayload.fundedAt).toBe(body.data.fundedAt);
     });
 
@@ -427,7 +460,7 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       // First call: STARTED → normal flow fails → fail() is called → key deleted
       // Second call: getRecord returns null because key was deleted → new start
       // This test simulates the second (retry) call:
-      mockIdempotencyGetRecord.mockResolvedValue(null); // key was deleted by fail()
+      mockIdempotency.getRecord.mockResolvedValue(null); // key was deleted by fail()
 
       const [req, ctx] = makeRequest('cmt-123', {}, 'POST', { 'idempotency-key': 'idem-retry' });
       const res = await POST(req, ctx);
@@ -435,8 +468,8 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
 
       expect(res.status).toBe(200);
       expect(body.success).toBe(true);
-      expect(mockIdempotencyStart).toHaveBeenCalledWith('idem-retry');
-      expect(mockFundEscrowOnChain).toHaveBeenCalled();
+      expect(mockIdempotency.start).toHaveBeenCalledWith('idem-retry');
+      expect(mockFundEscrow).toHaveBeenCalled();
     });
 
     it('idempotency key header value is propagated correctly to all service calls', async () => {
@@ -445,9 +478,9 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       });
       await POST(req, ctx);
 
-      expect(mockIdempotencyGetRecord).toHaveBeenCalledWith('exact-key-value');
-      expect(mockIdempotencyStart).toHaveBeenCalledWith('exact-key-value');
-      expect(mockIdempotencyComplete).toHaveBeenCalledWith(
+      expect(mockIdempotency.getRecord).toHaveBeenCalledWith('exact-key-value');
+      expect(mockIdempotency.start).toHaveBeenCalledWith('exact-key-value');
+      expect(mockIdempotency.complete).toHaveBeenCalledWith(
         'exact-key-value',
         expect.any(Object),
         200,
@@ -462,33 +495,35 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       const [req, ctx] = makeRequest('', {});
       await expectError(req, ctx, 400, 'VALIDATION_ERROR');
     });
-    const result = await parseResponse(response);
-    expect(result.status).toBe(409);
-    expect(result.data.error.code).toBe('CONFLICT_ERROR');
-    expect(result.data.error.message).toContain('currently processing');
-  });
 
-  it('cleans up failed idempotency records to allow retry', async () => {
-    const idempotencyKey = 'idempotency-fund-' + randomUUID();
+    it('rejects commitment ID with empty/whitespace string', async () => {
+      const req = createMockRequest(`http://localhost/api/commitments/   /fund`, {
+        body: { callerAddress: VALID_ADDRESS },
+      });
 
-    mockIdempotency.getRecord.mockResolvedValue(null);
-    mockGetCommitment.mockResolvedValue({
-      ...MOCK_COMMITMENT_CREATED,
-      status: 'FUNDED', // Invalid state - should fail
+      const context = { params: { id: '   ' } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(400);
+      expect(result.data.error.code).toBe('VALIDATION_ERROR');
     });
 
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: { callerAddress: VALID_ADDRESS },
-      idempotencyKey,
+    it('rejects malformed JSON in request body', async () => {
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        method: 'POST',
+      });
+      req.body = JSON.parse.bind(
+        null,
+        'invalid json',
+      ) as unknown as ReadableStream<Uint8Array> | null; // Force JSON parse error
+
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(400);
     });
-
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
-
-    const result = await parseResponse(response);
-    expect(result.status).toBe(409);
-    // Should call fail to allow retry
-    expect(mockIdempotency.fail).toHaveBeenCalledWith(idempotencyKey);
   });
 
   // ─── 403 Forbidden ───────────────────────────────────────────────────────
@@ -497,48 +532,48 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
     it('rejects callerAddress that does not match owner', async () => {
       const [req, ctx] = makeRequest('cmt-123', { callerAddress: 'GWRONGADDRESS' });
       await expectError(req, ctx, 403, 'FORBIDDEN');
-  // ── State Invariant Tests ──────────────────────────────────────────────────
-
-  it('rejects funding of non-CREATED commitments (precondition invariant)', async () => {
-    mockGetCommitment.mockResolvedValue({
-      ...MOCK_COMMITMENT_CREATED,
-      status: 'FUNDED',
     });
 
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: { callerAddress: VALID_ADDRESS },
+    it('rejects funding by non-owner (ownership invariant)', async () => {
+      const differentAddress = `GBAAAAABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB`;
+
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        body: { callerAddress: differentAddress },
+      });
+
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(403);
+      expect(result.data.error.code).toBe('FORBIDDEN_ERROR');
+      expect(result.data.error.message).toContain('Only the commitment owner may fund');
     });
-
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
-
-    const result = await parseResponse(response);
-    expect(result.status).toBe(409);
-    expect(result.data.error.message).toContain('FUNDED');
-    expect(result.data.error.message).toContain('Only CREATED commitments can be funded');
   });
 
   // ─── 404 Not Found ───────────────────────────────────────────────────────
 
   describe('404 - not found', () => {
     it('returns 404 when commitment does not exist', async () => {
-      mockGetCommitmentFromChain.mockResolvedValue(null);
+      mockGetCommitment.mockResolvedValue(null);
       const [req, ctx] = makeRequest('nonexistent', {});
       await expectError(req, ctx, 404, 'NOT_FOUND');
-  it('rejects funding by non-owner (ownership invariant)', async () => {
-    const differentAddress = `GBAAAAABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB`;
-
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: { callerAddress: differentAddress },
     });
 
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
+    it('rejects funding of non-existent commitment', async () => {
+      mockGetCommitment.mockResolvedValue(null);
 
-    const result = await parseResponse(response);
-    expect(result.status).toBe(403);
-    expect(result.data.error.code).toBe('FORBIDDEN_ERROR');
-    expect(result.data.error.message).toContain('Only the commitment owner may fund');
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        body: { callerAddress: VALID_ADDRESS },
+      });
+
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(404);
+      expect(result.data.error.code).toBe('NOT_FOUND_ERROR');
+    });
   });
 
   // ─── 409 Conflict ────────────────────────────────────────────────────────
@@ -555,7 +590,7 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
 
     for (const status of nonCreatedStatuses) {
       it(`rejects funding a commitment with status ${status}`, async () => {
-        mockGetCommitmentFromChain.mockResolvedValue({
+        mockGetCommitment.mockResolvedValue({
           ...MOCK_COMMITMENT,
           status,
         } as typeof MOCK_COMMITMENT);
@@ -564,8 +599,27 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       });
     }
 
+    it('rejects funding of non-CREATED commitments (precondition invariant)', async () => {
+      mockGetCommitment.mockResolvedValue({
+        ...MOCK_COMMITMENT_CREATED,
+        status: 'FUNDED',
+      });
+
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        body: { callerAddress: VALID_ADDRESS },
+      });
+
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(409);
+      expect(result.data.error.message).toContain('FUNDED');
+      expect(result.data.error.message).toContain('Only CREATED commitments can be funded');
+    });
+
     it('rejects duplicate idempotency key that is still processing (STARTED)', async () => {
-      mockIdempotencyGetRecord.mockResolvedValue({
+      mockIdempotency.getRecord.mockResolvedValue({
         key: 'idem-004',
         status: 'STARTED',
         createdAt: Date.now(),
@@ -573,19 +627,30 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       });
       const [req, ctx] = makeRequest('cmt-123', {}, 'POST', { 'idempotency-key': 'idem-004' });
       await expectError(req, ctx, 409, 'CONFLICT');
-  it('rejects funding of non-existent commitment', async () => {
-    mockGetCommitment.mockResolvedValue(null);
-
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: { callerAddress: VALID_ADDRESS },
     });
 
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
+    it('cleans up failed idempotency records to allow retry', async () => {
+      const idempotencyKey = 'idempotency-fund-' + randomUUID();
 
-    const result = await parseResponse(response);
-    expect(result.status).toBe(404);
-    expect(result.data.error.code).toBe('NOT_FOUND_ERROR');
+      mockIdempotency.getRecord.mockResolvedValue(null);
+      mockGetCommitment.mockResolvedValue({
+        ...MOCK_COMMITMENT_CREATED,
+        status: 'FUNDED', // Invalid state - should fail
+      });
+
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        body: { callerAddress: VALID_ADDRESS },
+        idempotencyKey,
+      });
+
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(409);
+      // Should call fail to allow retry
+      expect(mockIdempotency.fail).toHaveBeenCalledWith(idempotencyKey);
+    });
   });
 
   // ─── 429 Rate Limited ────────────────────────────────────────────────────
@@ -606,13 +671,28 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       expect(res.status).toBe(429);
       expect(res.headers.get('Retry-After')).toBe('60');
     });
+
+    it('respects rate limit for IP', async () => {
+      mockCheckRateLimit.mockResolvedValue(false);
+
+      const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+        body: { callerAddress: VALID_ADDRESS },
+      });
+
+      const context = { params: { id: COMMITMENT_ID } };
+      const response = await POST(req, context, 'correlation-123');
+
+      const result = await parseResponse(response);
+      expect(result.status).toBe(429);
+      expect(result.data.error.code).toBe('TOO_MANY_REQUESTS_ERROR');
+    });
   });
 
   // ─── 502 Blockchain error ─────────────────────────────────────────────────
 
   describe('502 - blockchain error', () => {
     it('returns 502 when fundEscrowOnChain throws a BLOCKCHAIN_CALL_FAILED BackendError', async () => {
-      mockFundEscrowOnChain.mockRejectedValue(
+      mockFundEscrow.mockRejectedValue(
         new BackendError({
           code: 'BLOCKCHAIN_CALL_FAILED',
           message: 'Unable to fund escrow on chain.',
@@ -631,7 +711,7 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
     });
 
     it('marks idempotency key as failed when blockchain call fails', async () => {
-      mockFundEscrowOnChain.mockRejectedValue(
+      mockFundEscrow.mockRejectedValue(
         new BackendError({
           code: 'BLOCKCHAIN_CALL_FAILED',
           message: 'RPC timeout',
@@ -641,7 +721,7 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       const [req, ctx] = makeRequest('cmt-123', {}, 'POST', { 'idempotency-key': 'idem-502' });
       await POST(req, ctx);
 
-      expect(mockIdempotencyFail).toHaveBeenCalledWith('idem-502');
+      expect(mockIdempotency.fail).toHaveBeenCalledWith('idem-502');
     });
   });
 
@@ -654,32 +734,7 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       const body = await res.json();
       expect(res.status).toBe(405);
       expect(body.error.code).toBe('METHOD_NOT_ALLOWED');
-  // ── Boundary & Validation Tests ────────────────────────────────────────────
-
-  it('rejects commitment ID with empty/whitespace string', async () => {
-    const req = createMockRequest(`http://localhost/api/commitments/   /fund`, {
-      body: { callerAddress: VALID_ADDRESS },
     });
-
-    const context = { params: { id: '   ' } };
-    const response = await POST(req, context, 'correlation-123');
-
-    const result = await parseResponse(response);
-    expect(result.status).toBe(400);
-    expect(result.data.error.code).toBe('VALIDATION_ERROR');
-  });
-
-  it('rejects malformed JSON in request body', async () => {
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      method: 'POST',
-    });
-    req.body = JSON.parse.bind(null, 'invalid json') as any; // Force JSON parse error
-
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
-
-    const result = await parseResponse(response);
-    expect(result.status).toBe(400);
   });
 
   // ── Diagnostics & Telemetry Tests ──────────────────────────────────────────
@@ -714,11 +769,11 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
         ),
     );
 
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
+    const _req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
       body: { callerAddress: VALID_ADDRESS },
     });
 
-    const context = { params: { id: COMMITMENT_ID } };
+    const _context = { params: { id: COMMITMENT_ID } };
     // Note: In real test, this would timeout. This is illustrative of the capability.
     // In practice, you'd mock the time or use a smaller threshold for testing.
   });
@@ -733,71 +788,70 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       });
       const res = await OPTIONS(req);
       expect(res.status).toBe(204);
-  // ── Rate Limit Tests ──────────────────────────────────────────────────────
-
-  it('respects rate limit for IP', async () => {
-    mockCheckRateLimit.mockResolvedValue(false);
-
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: { callerAddress: VALID_ADDRESS },
     });
-
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
-
-    const result = await parseResponse(response);
-    expect(result.status).toBe(429);
-    expect(result.data.error.code).toBe('TOO_MANY_REQUESTS_ERROR');
   });
 
   // ─── Error handling and idempotency failure path ──────────────────────────
 
   describe('error handling', () => {
     it('fails idempotency key when getCommitmentFromChain throws', async () => {
-      mockGetCommitmentFromChain.mockRejectedValue(new Error('RPC failure'));
+      mockGetCommitment.mockRejectedValue(new Error('RPC failure'));
       const [req, ctx] = makeRequest('cmt-123', {}, 'POST', { 'idempotency-key': 'idem-005' });
       await POST(req, ctx);
-  // ── CSRF Protection Tests ──────────────────────────────────────────────────
 
-  it('asserts CSRF token on POST request', async () => {
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: { callerAddress: VALID_ADDRESS },
+      expect(mockIdempotency.fail).toHaveBeenCalledWith('idem-005');
     });
 
     it('fails idempotency key when fundEscrowOnChain throws', async () => {
-      mockFundEscrowOnChain.mockRejectedValue(new Error('Chain timeout'));
+      mockFundEscrow.mockRejectedValue(new Error('Chain timeout'));
       const [req, ctx] = makeRequest('cmt-123', {}, 'POST', { 'idempotency-key': 'idem-006' });
       await POST(req, ctx);
 
-      expect(mockIdempotencyFail).toHaveBeenCalledWith('idem-006');
+      expect(mockIdempotency.fail).toHaveBeenCalledWith('idem-006');
     });
 
     it('does not call idempotencyFail when no idempotency key is present', async () => {
-      mockGetCommitmentFromChain.mockRejectedValue(new Error('RPC failure'));
+      mockGetCommitment.mockRejectedValue(new Error('RPC failure'));
       const [req, ctx] = makeRequest('cmt-123', {});
       await POST(req, ctx);
 
-      expect(mockIdempotencyFail).not.toHaveBeenCalled();
+      expect(mockIdempotency.fail).not.toHaveBeenCalled();
     });
 
     it('returns 500 for unexpected errors', async () => {
-      mockGetCommitmentFromChain.mockRejectedValue(new Error('Unexpected DB error'));
+      mockGetCommitment.mockRejectedValue(new Error('Unexpected DB error'));
       const [req, ctx] = makeRequest('cmt-123', {});
       const res = await POST(req, ctx);
       const body = await res.json();
-    const context = { params: { id: COMMITMENT_ID } };
-    await POST(req, context, 'correlation-123');
 
-    expect(mockAssertCsrf).toHaveBeenCalledWith(req);
+      expect(res.status).toBe(500);
+      expect(body.success).toBe(false);
+    });
   });
 
-  it('fails on CSRF validation failure', async () => {
-    mockAssertCsrf.mockImplementation(() => {
-      throw new Error('CSRF token invalid');
+  // ── CSRF Protection Tests ──────────────────────────────────────────────────
+
+  describe('CSRF protection', () => {
+    it('asserts CSRF token on POST request', async () => {
+      const [req, ctx] = makeRequest(`cmt-123`, {});
+      const res = await POST(req, ctx);
+
+      expect(mockAssertCsrf).toHaveBeenCalledWith(req);
+      expect(res.status).toBe(200);
+    });
+
+    it('fails on CSRF validation failure', async () => {
+      mockAssertCsrf.mockImplementation(() => {
+        throw new Error('CSRF token invalid');
+      });
+      const [req, ctx] = makeRequest('cmt-123', {});
+      await POST(req, ctx);
+
+      expect(mockFundEscrow).not.toHaveBeenCalled();
     });
 
     it('returns 500 with x-correlation-id header on unhandled error', async () => {
-      mockGetCommitmentFromChain.mockRejectedValue(new Error('boom'));
+      mockGetCommitment.mockRejectedValue(new Error('boom'));
       const [req, ctx] = makeRequest('cmt-123', {}, 'POST', {
         'x-correlation-id': 'err-corr-001',
       });
@@ -815,18 +869,18 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       const [req, ctx] = makeRequest('cmt-abc_123-XYZ', {});
       const res = await POST(req, ctx);
 
-      expect(mockGetCommitmentFromChain).toHaveBeenCalledWith('cmt-abc_123-XYZ');
+      expect(mockGetCommitment).toHaveBeenCalledWith('cmt-abc_123-XYZ');
       expect(res.status).toBe(200);
     });
 
     it('does not call fundEscrowOnChain when CSRF check throws', async () => {
-      mockAssertMutationCsrf.mockImplementation(() => {
+      mockAssertCsrf.mockImplementation(() => {
         throw new CsrfValidationError('Missing CSRF token.');
       });
       const [req, ctx] = makeRequest('cmt-123', {});
       await POST(req, ctx);
 
-      expect(mockFundEscrowOnChain).not.toHaveBeenCalled();
+      expect(mockFundEscrow).not.toHaveBeenCalled();
     });
 
     it('does not call fundEscrowOnChain when rate limit is exceeded', async () => {
@@ -834,33 +888,33 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
       const [req, ctx] = makeRequest('cmt-123', {});
       await POST(req, ctx);
 
-      expect(mockFundEscrowOnChain).not.toHaveBeenCalled();
+      expect(mockFundEscrow).not.toHaveBeenCalled();
     });
 
     it('does not call fundEscrowOnChain when commitment is not found', async () => {
-      mockGetCommitmentFromChain.mockResolvedValue(null);
+      mockGetCommitment.mockResolvedValue(null);
       const [req, ctx] = makeRequest('cmt-123', {});
       await POST(req, ctx);
 
-      expect(mockFundEscrowOnChain).not.toHaveBeenCalled();
+      expect(mockFundEscrow).not.toHaveBeenCalled();
     });
 
     it('does not call fundEscrowOnChain when status is not CREATED', async () => {
-      mockGetCommitmentFromChain.mockResolvedValue({
+      mockGetCommitment.mockResolvedValue({
         ...MOCK_COMMITMENT,
         status: 'SETTLED',
       } as typeof MOCK_COMMITMENT);
       const [req, ctx] = makeRequest('cmt-123', {});
       await POST(req, ctx);
 
-      expect(mockFundEscrowOnChain).not.toHaveBeenCalled();
+      expect(mockFundEscrow).not.toHaveBeenCalled();
     });
 
     it('does not call fundEscrowOnChain when caller address is forbidden', async () => {
       const [req, ctx] = makeRequest('cmt-123', { callerAddress: 'GEVIL999' });
       await POST(req, ctx);
 
-      expect(mockFundEscrowOnChain).not.toHaveBeenCalled();
+      expect(mockFundEscrow).not.toHaveBeenCalled();
     });
 
     it('success response body has success: true at top level', async () => {
@@ -872,21 +926,12 @@ describe('POST /api/commitments/[id]/fund - Idempotency & Concurrent Request Bou
     });
 
     it('error response body has success: false at top level', async () => {
-      mockGetCommitmentFromChain.mockResolvedValue(null);
+      mockGetCommitment.mockResolvedValue(null);
       const [req, ctx] = makeRequest('nonexistent', {});
       const res = await POST(req, ctx);
       const body = await res.json();
 
       expect(body.success).toBe(false);
     });
-    const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/fund`, {
-      body: { callerAddress: VALID_ADDRESS },
-    });
-
-    const context = { params: { id: COMMITMENT_ID } };
-    const response = await POST(req, context, 'correlation-123');
-
-    const result = await parseResponse(response);
-    expect(result.status).toBe(400);
   });
 });

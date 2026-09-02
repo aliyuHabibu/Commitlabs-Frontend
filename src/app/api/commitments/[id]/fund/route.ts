@@ -191,10 +191,9 @@ export const POST = withApiHandler(
 
       // INVARIANT: Ownership immutability - only owner can fund
       if (callerAddress && callerAddress !== commitment.ownerAddress) {
-        const authError = new ForbiddenError(
-          'Only the commitment owner may fund this commitment',
-          { commitmentId: id },
-        );
+        const authError = new ForbiddenError('Only the commitment owner may fund this commitment', {
+          commitmentId: id,
+        });
         diagnosticsService.completeOperation(
           operationId,
           'failure',

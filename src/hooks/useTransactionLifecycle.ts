@@ -13,23 +13,16 @@ import type {
   TransactionResult,
   PollingConfig,
 } from '@/lib/transaction/transactionTypes';
-import {
-  DEFAULT_POLLING_CONFIG,
-  TRANSACTION_BOUNDS,
-} from '@/lib/transaction/transactionTypes';
+import { DEFAULT_POLLING_CONFIG } from '@/lib/transaction/transactionTypes';
 import { TransactionStateMachine } from '@/lib/transaction/transactionStateMachine';
 import {
   saveTransaction,
-  loadTransaction,
   updateTransactionState,
   hasActiveTransaction,
   getLatestTransaction,
   initializePersistence,
 } from '@/lib/transaction/transactionPersistence';
-import {
-  pollWithBounds,
-  createTimeoutAbortController,
-} from '@/lib/transaction/transactionPolling';
+import { pollWithBounds, createTimeoutAbortController } from '@/lib/transaction/transactionPolling';
 import {
   createTelemetryEvent,
   recordTelemetryEvent,
@@ -92,7 +85,7 @@ export function useTransactionLifecycle(
 
   // State machine instance
   const stateMachineRef = useRef<TransactionStateMachine | null>(null);
-  
+
   // Abort controller for cancellation
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -124,7 +117,7 @@ export function useTransactionLifecycle(
       setTxHash(existingTransaction.txHash ?? null);
       setError(existingTransaction.error ?? null);
       setRetryCount(existingTransaction.retryCount);
-      
+
       // If transaction is in non-terminal state, resume polling
       if (!['idle', 'confirmed', 'failed'].includes(existingTransaction.state)) {
         resumeTransactionPolling(existingTransaction.id);
@@ -135,189 +128,203 @@ export function useTransactionLifecycle(
   /**
    * Resume polling for an existing transaction
    */
-  const resumeTransactionPolling = useCallback(async (txId: string) => {
-    if (!stateMachineRef.current) return;
+  const resumeTransactionPolling = useCallback(
+    async (txId: string) => {
+      if (!stateMachineRef.current) return;
 
-    const abortController = createTimeoutAbortController(
-      pollingConfig?.maxDurationMs ?? DEFAULT_POLLING_CONFIG.maxDurationMs,
-    );
-    abortControllerRef.current = abortController;
+      const abortController = createTimeoutAbortController(
+        pollingConfig?.maxDurationMs ?? DEFAULT_POLLING_CONFIG.maxDurationMs,
+      );
+      abortControllerRef.current = abortController;
 
-    try {
-      const pollOptions: Parameters<typeof pollWithBounds>[0] = {
-        pollFn: async () => {
-          // Poll the transaction status from the API
-          const response = await fetch(`/api/commitments/${commitmentId}/status`);
-          if (!response.ok) {
-            throw new Error('Failed to poll transaction status');
-          }
-          return response.json() as Promise<{ state: string; txHash?: string }>;
-        },
-        shouldStop: (data: unknown) => {
-          const typedData = data as { state: string; txHash?: string };
-          // Stop polling when transaction reaches terminal state
-          return ['confirmed', 'failed', 'rejected'].includes(typedData.state);
-        },
-        signal: abortController.signal,
-        transactionId: txId,
-      };
-
-      if (pollingConfig !== undefined) {
-        pollOptions.config = pollingConfig;
-      }
-
-      const pollingResult = await pollWithBounds(pollOptions);
-
-      if (pollingResult.success && pollingResult.data) {
-        const typedData = pollingResult.data as { state: string; txHash?: string };
-        // Update state based on polling result
-        const newState = typedData.state as TransactionState;
-        const transitionError = stateMachineRef.current.transition(newState);
-        
-        if (transitionError) {
-          setError(transitionError.message);
-        } else {
-          setState(newState);
-          if (enablePersistence) {
-            const updateFields: Partial<TransactionMetadata> = {};
-            if (typedData.txHash !== undefined) {
-              updateFields.txHash = typedData.txHash;
+      try {
+        const pollOptions: Parameters<typeof pollWithBounds>[0] = {
+          pollFn: async () => {
+            // Poll the transaction status from the API
+            const response = await fetch(`/api/commitments/${commitmentId}/status`);
+            if (!response.ok) {
+              throw new Error('Failed to poll transaction status');
             }
-            updateTransactionState(txId, newState, updateFields);
+            return response.json() as Promise<{ state: string; txHash?: string }>;
+          },
+          shouldStop: (data: unknown) => {
+            const typedData = data as { state: string; txHash?: string };
+            // Stop polling when transaction reaches terminal state
+            return ['confirmed', 'failed', 'rejected'].includes(typedData.state);
+          },
+          signal: abortController.signal,
+          transactionId: txId,
+        };
+
+        if (pollingConfig !== undefined) {
+          pollOptions.config = pollingConfig;
+        }
+
+        const pollingResult = await pollWithBounds(pollOptions);
+
+        if (pollingResult.success && pollingResult.data) {
+          const typedData = pollingResult.data as { state: string; txHash?: string };
+          // Update state based on polling result
+          const newState = typedData.state as TransactionState;
+          const transitionError = stateMachineRef.current.transition(newState);
+
+          if (transitionError) {
+            setError(transitionError.message);
+          } else {
+            setState(newState);
+            if (enablePersistence) {
+              const updateFields: Partial<TransactionMetadata> = {};
+              if (typedData.txHash !== undefined) {
+                updateFields.txHash = typedData.txHash;
+              }
+              updateTransactionState(txId, newState, updateFields);
+            }
+          }
+        } else if (pollingResult.error) {
+          setError(pollingResult.error.message);
+          stateMachineRef.current.transition('failed');
+          setState('failed');
+          if (enablePersistence) {
+            updateTransactionState(txId, 'failed', {
+              error: pollingResult.error.message,
+            });
           }
         }
-      } else if (pollingResult.error) {
-        setError(pollingResult.error.message);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Polling failed';
+        setError(errorMessage);
         stateMachineRef.current.transition('failed');
         setState('failed');
         if (enablePersistence) {
-          updateTransactionState(txId, 'failed', {
-            error: pollingResult.error.message,
-          });
+          updateTransactionState(txId, 'failed', { error: errorMessage });
         }
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Polling failed';
-      setError(errorMessage);
-      stateMachineRef.current.transition('failed');
-      setState('failed');
-      if (enablePersistence) {
-        updateTransactionState(txId, 'failed', { error: errorMessage });
-      }
-    }
-  }, [commitmentId, pollingConfig, enablePersistence]);
+    },
+    [commitmentId, pollingConfig, enablePersistence],
+  );
 
   /**
    * Start a new transaction
    */
-  const startTransaction = useCallback(async (params: { callerAddress?: string }) => {
-    // Check for active transaction
-    if (enablePersistence && hasActiveTransaction(commitmentId)) {
-      throw new Error('An active transaction already exists for this commitment');
-    }
-
-    // Generate transaction ID
-    const txId = `${transactionType}_${commitmentId}_${Date.now()}`;
-    
-    // Initialize state machine
-    const stateMachine = new TransactionStateMachine('pending');
-    stateMachineRef.current = stateMachine;
-
-    // Update UI state
-    setState('pending');
-    setTransactionId(txId);
-    setError(null);
-    setRetryCount(0);
-    setResult(null);
-
-    // Record telemetry
-    if (enableTelemetry) {
-      recordTelemetryEvent(
-        createTelemetryEvent('transaction_started', txId, transactionType, 'pending'),
-      );
-    }
-
-    // Save initial state
-    if (enablePersistence) {
-      const additionalFields: Partial<TransactionMetadata> = {};
-      if (params.callerAddress !== undefined) {
-        additionalFields.callerAddress = params.callerAddress;
-      }
-      
-      const metadata: TransactionMetadata = stateMachine.toMetadata(
-        txId,
-        transactionType,
-        commitmentId,
-        additionalFields,
-      );
-      saveTransaction(metadata);
-    }
-
-    try {
-      // Call the appropriate API endpoint
-      const endpoint = transactionType === 'settlement'
-        ? `/api/commitments/${commitmentId}/settle`
-        : `/api/commitments/${commitmentId}/early-exit`;
-      
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...params,
-          transactionId: txId,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.statusText}`);
+  const startTransaction = useCallback(
+    async (params: { callerAddress?: string }) => {
+      // Check for active transaction
+      if (enablePersistence && hasActiveTransaction(commitmentId)) {
+        throw new Error('An active transaction already exists for this commitment');
       }
 
-      const data = await response.json();
+      // Generate transaction ID
+      const txId = `${transactionType}_${commitmentId}_${Date.now()}`;
 
-      // Transition to confirming state
-      const transitionError = stateMachine.transition('confirming');
-      if (transitionError) {
-        throw new Error(transitionError.message);
-      }
-      setState('confirming');
+      // Initialize state machine
+      const stateMachine = new TransactionStateMachine('pending');
+      stateMachineRef.current = stateMachine;
 
-      // Update with response data
-      setTxHash(data.txHash ?? null);
-      setResult(data);
+      // Update UI state
+      setState('pending');
+      setTransactionId(txId);
+      setError(null);
+      setRetryCount(0);
+      setResult(null);
 
-      if (enablePersistence) {
-        updateTransactionState(txId, 'confirming', {
-          txHash: data.txHash,
-          settlementAmount: data.settlementAmount,
-          exitAmount: data.exitAmount,
-          penaltyAmount: data.penaltyAmount,
-        });
-      }
-
-      // Start polling for confirmation
-      await resumeTransactionPolling(txId);
-
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
-      setError(errorMessage);
-      stateMachine.transition('failed');
-      setState('failed');
-      
-      if (enablePersistence) {
-        updateTransactionState(txId, 'failed', { error: errorMessage });
-      }
-
+      // Record telemetry
       if (enableTelemetry) {
         recordTelemetryEvent(
-          createTelemetryEvent('transaction_failed', txId, transactionType, 'failed', undefined, undefined, 'NETWORK_ERROR'),
+          createTelemetryEvent('transaction_started', txId, transactionType, 'pending'),
         );
       }
 
-      throw err;
-    }
-  }, [commitmentId, transactionType, enablePersistence, enableTelemetry, resumeTransactionPolling]);
+      // Save initial state
+      if (enablePersistence) {
+        const additionalFields: Partial<TransactionMetadata> = {};
+        if (params.callerAddress !== undefined) {
+          additionalFields.callerAddress = params.callerAddress;
+        }
+
+        const metadata: TransactionMetadata = stateMachine.toMetadata(
+          txId,
+          transactionType,
+          commitmentId,
+          additionalFields,
+        );
+        saveTransaction(metadata);
+      }
+
+      try {
+        // Call the appropriate API endpoint
+        const endpoint =
+          transactionType === 'settlement'
+            ? `/api/commitments/${commitmentId}/settle`
+            : `/api/commitments/${commitmentId}/early-exit`;
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...params,
+            transactionId: txId,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`API request failed: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        // Transition to confirming state
+        const transitionError = stateMachine.transition('confirming');
+        if (transitionError) {
+          throw new Error(transitionError.message);
+        }
+        setState('confirming');
+
+        // Update with response data
+        setTxHash(data.txHash ?? null);
+        setResult(data);
+
+        if (enablePersistence) {
+          updateTransactionState(txId, 'confirming', {
+            txHash: data.txHash,
+            settlementAmount: data.settlementAmount,
+            exitAmount: data.exitAmount,
+            penaltyAmount: data.penaltyAmount,
+          });
+        }
+
+        // Start polling for confirmation
+        await resumeTransactionPolling(txId);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+        setError(errorMessage);
+        stateMachine.transition('failed');
+        setState('failed');
+
+        if (enablePersistence) {
+          updateTransactionState(txId, 'failed', { error: errorMessage });
+        }
+
+        if (enableTelemetry) {
+          recordTelemetryEvent(
+            createTelemetryEvent(
+              'transaction_failed',
+              txId,
+              transactionType,
+              'failed',
+              undefined,
+              undefined,
+              'NETWORK_ERROR',
+            ),
+          );
+        }
+
+        throw err;
+      }
+    },
+    [commitmentId, transactionType, enablePersistence, enableTelemetry, resumeTransactionPolling],
+  );
 
   /**
    * Retry a failed transaction
@@ -373,7 +380,7 @@ export function useTransactionLifecycle(
    */
   const clearTransaction = useCallback(() => {
     cancelTransaction();
-    
+
     if (transactionId && enablePersistence) {
       // Delete from persistence
       const key = `transaction_${transactionId}`;
