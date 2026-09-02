@@ -137,29 +137,8 @@ export function evaluateChartBoundary(input: {
     return failChartBoundary('INVALID_METRIC', 'Chart metric is missing or not recognized.', true);
   }
 
-  let numericValue: number;
-  if (typeof input.value === 'number') {
-    numericValue = input.value;
-  } else if (typeof input.value === 'string') {
-    const trimmed = input.value.trim();
-    if (!/^\d+(?:\.\d+)?$/.test(trimmed)) {
-      return failChartBoundary(
-        'INVALID_NUMERIC',
-        'Chart value is not a safe finite numeric value.',
-        true,
-      );
-    }
-    numericValue = Number(trimmed);
-  } else {
-    return failChartBoundary('INVALID_NUMERIC', 'Chart value is missing or not numeric.', true);
-  }
-
-  if (!Number.isFinite(numericValue) || !Number.isSafeInteger(Math.abs(numericValue))) {
-    if (Math.abs(numericValue) > Number.MAX_SAFE_INTEGER) {
-      return failChartBoundary('INVALID_NUMERIC', 'Chart value exceeds safe integer bounds.', true);
-    }
-  }
-
+  // Authenticate the wallet connection before trusting any submitted value, so a
+  // disconnected/misconfigured wallet is reported even when the value is malformed.
   const walletAddress = typeof input.walletAddress === 'string' ? input.walletAddress.trim() : '';
   if (!walletAddress || !isValidStellarAddress(walletAddress)) {
     return failChartBoundary(
@@ -197,6 +176,29 @@ export function evaluateChartBoundary(input: {
       'Wallet network could not be verified for this chart request.',
       true,
     );
+  }
+
+  let numericValue: number;
+  if (typeof input.value === 'number') {
+    numericValue = input.value;
+  } else if (typeof input.value === 'string') {
+    const trimmed = input.value.trim();
+    if (!/^\d+(?:\.\d+)?$/.test(trimmed)) {
+      return failChartBoundary(
+        'INVALID_NUMERIC',
+        'Chart value is not a safe finite numeric value.',
+        true,
+      );
+    }
+    numericValue = Number(trimmed);
+  } else {
+    return failChartBoundary('INVALID_NUMERIC', 'Chart value is missing or not numeric.', true);
+  }
+
+  if (!Number.isFinite(numericValue) || !Number.isSafeInteger(Math.abs(numericValue))) {
+    if (Math.abs(numericValue) > Number.MAX_SAFE_INTEGER) {
+      return failChartBoundary('INVALID_NUMERIC', 'Chart value exceeds safe integer bounds.', true);
+    }
   }
 
   if (input.response != null) {

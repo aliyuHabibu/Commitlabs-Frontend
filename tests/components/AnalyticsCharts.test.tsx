@@ -2,12 +2,37 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { axe, toHaveNoViolations } from 'vitest-axe';
-import AnalyticsTrendBarChart, { BarDataPoint } from '@/components/analytics/AnalyticsTrendBarChart';
-import AnalyticsTrendLineChart, { TrendDataPoint } from '@/components/analytics/AnalyticsTrendLineChart';
+import * as axeMatchers from 'vitest-axe/matchers';
+import { axe } from 'vitest-axe';
+import AnalyticsTrendBarChart, {
+  BarDataPoint,
+} from '@/components/analytics/AnalyticsTrendBarChart';
+import AnalyticsTrendLineChart, {
+  TrendDataPoint,
+} from '@/components/analytics/AnalyticsTrendLineChart';
+
+vi.mock('recharts', () => {
+  const Passthrough: React.FC<{ children?: React.ReactNode; [k: string]: unknown }> = ({
+    children,
+  }) => <svg>{children as React.ReactNode}</svg>;
+  const Null: React.FC<Record<string, unknown>> = () => null;
+  return {
+    BarChart: Passthrough,
+    LineChart: Passthrough,
+    Bar: Null,
+    Line: Null,
+    Cell: Null,
+    XAxis: Null,
+    YAxis: Null,
+    CartesianGrid: Null,
+    Tooltip: Null,
+    Legend: Null,
+    ResponsiveContainer: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  };
+});
 
 // Extend vitest expect with axe matchers
-expect.extend(toHaveNoViolations);
+expect.extend(axeMatchers);
 
 /**
  * Test suite for AnalyticsTrendBarChart component
@@ -33,26 +58,20 @@ describe('AnalyticsTrendBarChart', () => {
 
   describe('Rendering', () => {
     it('should render the chart title', () => {
-      render(
-        <AnalyticsTrendBarChart title="Total Commitments" data={mockData} />,
-      );
+      render(<AnalyticsTrendBarChart title="Total Commitments" data={mockData} />);
 
-      expect(screen.getByText('Total Commitments')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Total Commitments' })).toBeInTheDocument();
     });
 
     it('should render the chart within a section element', () => {
-      const { container } = render(
-        <AnalyticsTrendBarChart title="Test Chart" data={mockData} />,
-      );
+      const { container } = render(<AnalyticsTrendBarChart title="Test Chart" data={mockData} />);
 
       const section = container.querySelector('section');
       expect(section).toBeInTheDocument();
     });
 
     it('should apply aria-label to section', () => {
-      const { container } = render(
-        <AnalyticsTrendBarChart title="Test Chart" data={mockData} />,
-      );
+      const { container } = render(<AnalyticsTrendBarChart title="Test Chart" data={mockData} />);
 
       const section = container.querySelector('section[aria-label="Test Chart"]');
       expect(section).toBeInTheDocument();
@@ -61,9 +80,7 @@ describe('AnalyticsTrendBarChart', () => {
 
   describe('Data rendering', () => {
     it('should render the visual chart when data is provided', () => {
-      const { container } = render(
-        <AnalyticsTrendBarChart title="Test" data={mockData} />,
-      );
+      const { container } = render(<AnalyticsTrendBarChart title="Test" data={mockData} />);
 
       // Recharts renders an SVG element
       const svg = container.querySelector('svg');
@@ -71,26 +88,14 @@ describe('AnalyticsTrendBarChart', () => {
     });
 
     it('should render with custom series label', () => {
-      render(
-        <AnalyticsTrendBarChart
-          title="Test"
-          data={mockData}
-          seriesLabel="Custom Series"
-        />,
-      );
+      render(<AnalyticsTrendBarChart title="Test" data={mockData} seriesLabel="Custom Series" />);
 
       expect(screen.getByText('Custom Series')).toBeInTheDocument();
     });
 
     it('should render description when provided', () => {
       const description = 'This chart shows the trend of active commitments';
-      render(
-        <AnalyticsTrendBarChart
-          title="Test"
-          data={mockData}
-          description={description}
-        />,
-      );
+      render(<AnalyticsTrendBarChart title="Test" data={mockData} description={description} />);
 
       expect(screen.getByText(description)).toBeInTheDocument();
     });
@@ -98,18 +103,14 @@ describe('AnalyticsTrendBarChart', () => {
 
   describe('Empty state', () => {
     it('should render gracefully with empty data array', () => {
-      const { container } = render(
-        <AnalyticsTrendBarChart title="Test Chart" data={[]} />,
-      );
+      const { container } = render(<AnalyticsTrendBarChart title="Test Chart" data={[]} />);
 
       const section = container.querySelector('section');
       expect(section).toBeInTheDocument();
     });
 
     it('should not render chart SVG when data is empty', () => {
-      const { container } = render(
-        <AnalyticsTrendBarChart title="Test Chart" data={[]} />,
-      );
+      const { container } = render(<AnalyticsTrendBarChart title="Test Chart" data={[]} />);
 
       const svg = container.querySelector('svg');
       expect(svg).not.toBeInTheDocument();
@@ -117,11 +118,7 @@ describe('AnalyticsTrendBarChart', () => {
 
     it('should still render title and description for empty state', () => {
       render(
-        <AnalyticsTrendBarChart
-          title="Empty Chart"
-          data={[]}
-          description="No data available"
-        />,
+        <AnalyticsTrendBarChart title="Empty Chart" data={[]} description="No data available" />,
       );
 
       expect(screen.getByText('Empty Chart')).toBeInTheDocument();
@@ -131,9 +128,7 @@ describe('AnalyticsTrendBarChart', () => {
 
   describe('Value formatting', () => {
     it('should apply default formatter to values', () => {
-      render(
-        <AnalyticsTrendBarChart title="Test" data={mockData} />,
-      );
+      render(<AnalyticsTrendBarChart title="Test" data={mockData} />);
 
       // The chart should be rendered
       const section = screen.getByRole('region', { hidden: true });
@@ -143,24 +138,18 @@ describe('AnalyticsTrendBarChart', () => {
     it('should apply custom formatter function', () => {
       const customFormatter = vi.fn((v: number) => `$${v}`);
       render(
-        <AnalyticsTrendBarChart
-          title="Test"
-          data={mockData}
-          valueFormatter={customFormatter}
-        />,
+        <AnalyticsTrendBarChart title="Test" data={mockData} valueFormatter={customFormatter} />,
       );
 
       // Custom formatter would be applied in tooltips (harder to test in jsdom)
       // Just verify the component renders without error
-      expect(screen.getByText('Test')).toBeInTheDocument();
+      expect(screen.getAllByText('Test').length).toBeGreaterThan(0);
     });
   });
 
   describe('Color customization', () => {
     it('should use default color when not specified', () => {
-      const { container } = render(
-        <AnalyticsTrendBarChart title="Test" data={mockData} />,
-      );
+      const { container } = render(<AnalyticsTrendBarChart title="Test" data={mockData} />);
 
       const section = container.querySelector('section');
       expect(section).toBeInTheDocument();
@@ -176,19 +165,15 @@ describe('AnalyticsTrendBarChart', () => {
     });
 
     it('should accept hex color values', () => {
-      render(
-        <AnalyticsTrendBarChart title="Test" data={mockData} color="#0ff0fc" />,
-      );
+      render(<AnalyticsTrendBarChart title="Test" data={mockData} color="#0ff0fc" />);
 
-      expect(screen.getByText('Test')).toBeInTheDocument();
+      expect(screen.getAllByText('Test').length).toBeGreaterThan(0);
     });
 
     it('should accept rgb color values', () => {
-      render(
-        <AnalyticsTrendBarChart title="Test" data={mockData} color="rgb(255, 0, 0)" />,
-      );
+      render(<AnalyticsTrendBarChart title="Test" data={mockData} color="rgb(255, 0, 0)" />);
 
-      expect(screen.getByText('Test')).toBeInTheDocument();
+      expect(screen.getAllByText('Test').length).toBeGreaterThan(0);
     });
   });
 
@@ -203,27 +188,21 @@ describe('AnalyticsTrendBarChart', () => {
     });
 
     it('should pass axe accessibility checks in empty state', async () => {
-      const { container } = render(
-        <AnalyticsTrendBarChart title="Empty Chart" data={[]} />,
-      );
+      const { container } = render(<AnalyticsTrendBarChart title="Empty Chart" data={[]} />);
 
       const results = await axe(container);
       expect(results).toHaveNoViolations();
     });
 
     it('should have proper heading hierarchy', () => {
-      render(
-        <AnalyticsTrendBarChart title="Chart Title" data={mockData} />,
-      );
+      render(<AnalyticsTrendBarChart title="Chart Title" data={mockData} />);
 
-      const heading = screen.getByText('Chart Title');
+      const heading = screen.getByRole('heading', { name: 'Chart Title' });
       expect(heading.tagName).toBe('H3');
     });
 
     it('should use semantic section element', () => {
-      const { container } = render(
-        <AnalyticsTrendBarChart title="Test" data={mockData} />,
-      );
+      const { container } = render(<AnalyticsTrendBarChart title="Test" data={mockData} />);
 
       const section = container.querySelector('section');
       expect(section?.tagName).toBe('SECTION');
@@ -256,7 +235,7 @@ describe('AnalyticsTrendBarChart', () => {
 
     it('should not trap focus in chart', async () => {
       const user = userEvent.setup();
-      const { container } = render(
+      render(
         <div>
           <button>Before Chart</button>
           <AnalyticsTrendBarChart title="Test" data={mockData} />
@@ -276,23 +255,15 @@ describe('AnalyticsTrendBarChart', () => {
 
   describe('Screen reader support', () => {
     it('should announce chart title to screen readers', () => {
-      render(
-        <AnalyticsTrendBarChart title="Revenue Trend" data={mockData} />,
-      );
+      render(<AnalyticsTrendBarChart title="Revenue Trend" data={mockData} />);
 
-      const heading = screen.getByText('Revenue Trend');
+      const heading = screen.getByRole('heading', { name: 'Revenue Trend' });
       expect(heading).toBeInTheDocument();
     });
 
     it('should provide description text for screen readers', () => {
       const description = 'Monthly revenue data for the current fiscal year';
-      render(
-        <AnalyticsTrendBarChart
-          title="Test"
-          data={mockData}
-          description={description}
-        />,
-      );
+      render(<AnalyticsTrendBarChart title="Test" data={mockData} description={description} />);
 
       expect(screen.getByText(description)).toBeInTheDocument();
     });
@@ -301,25 +272,19 @@ describe('AnalyticsTrendBarChart', () => {
   describe('Responsive design', () => {
     it('should render on mobile viewport', () => {
       // jsdom doesn't fully support viewport sizes, but component should render
-      render(
-        <AnalyticsTrendBarChart title="Mobile Chart" data={mockData} />,
-      );
+      render(<AnalyticsTrendBarChart title="Mobile Chart" data={mockData} />);
 
-      expect(screen.getByText('Mobile Chart')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Mobile Chart' })).toBeInTheDocument();
     });
 
     it('should render on desktop viewport', () => {
-      render(
-        <AnalyticsTrendBarChart title="Desktop Chart" data={mockData} />,
-      );
+      render(<AnalyticsTrendBarChart title="Desktop Chart" data={mockData} />);
 
-      expect(screen.getByText('Desktop Chart')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Desktop Chart' })).toBeInTheDocument();
     });
 
     it('should use responsive container from recharts', () => {
-      const { container } = render(
-        <AnalyticsTrendBarChart title="Test" data={mockData} />,
-      );
+      const { container } = render(<AnalyticsTrendBarChart title="Test" data={mockData} />);
 
       // ResponsiveContainer renders the chart
       const svg = container.querySelector('svg');
@@ -329,9 +294,7 @@ describe('AnalyticsTrendBarChart', () => {
 
   describe('Reduced motion preference', () => {
     it('should respect prefers-reduced-motion in CSS', () => {
-      const { container } = render(
-        <AnalyticsTrendBarChart title="Motion Test" data={mockData} />,
-      );
+      const { container } = render(<AnalyticsTrendBarChart title="Motion Test" data={mockData} />);
 
       // Component uses Tailwind classes which respect prefers-reduced-motion
       const section = container.querySelector('section');
@@ -366,11 +329,9 @@ describe('AnalyticsTrendLineChart', () => {
 
   describe('Rendering', () => {
     it('should render the chart title', () => {
-      render(
-        <AnalyticsTrendLineChart title="Compliance Score Trend" data={mockTrendData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Compliance Score Trend" data={mockTrendData} />);
 
-      expect(screen.getByText('Compliance Score Trend')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Compliance Score Trend' })).toBeInTheDocument();
     });
 
     it('should render within a section element', () => {
@@ -394,36 +355,29 @@ describe('AnalyticsTrendLineChart', () => {
 
   describe('Data rendering', () => {
     it('should render the visual line chart', () => {
-      const { container } = render(
-        <AnalyticsTrendLineChart title="Test" data={mockTrendData} />,
-      );
+      const { container } = render(<AnalyticsTrendLineChart title="Test" data={mockTrendData} />);
 
       const svg = container.querySelector('svg');
       expect(svg).toBeInTheDocument();
     });
 
     it('should render data table for screen readers', () => {
-      render(
-        <AnalyticsTrendLineChart title="Test Trend" data={mockTrendData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Test Trend" data={mockTrendData} />);
 
       const table = screen.getByRole('table');
       expect(table).toBeInTheDocument();
     });
 
     it('should render table caption matching title', () => {
-      render(
-        <AnalyticsTrendLineChart title="Revenue Trend" data={mockTrendData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Revenue Trend" data={mockTrendData} />);
 
-      const caption = screen.getByText('Revenue Trend');
+      const table = screen.getByRole('table');
+      const caption = within(table).getByText('Revenue Trend');
       expect(caption.tagName).toBe('CAPTION');
     });
 
     it('should render table headers (Period, Value)', () => {
-      render(
-        <AnalyticsTrendLineChart title="Test" data={mockTrendData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Test" data={mockTrendData} />);
 
       const table = screen.getByRole('table');
       expect(within(table).getByText('Period')).toBeInTheDocument();
@@ -431,9 +385,7 @@ describe('AnalyticsTrendLineChart', () => {
     });
 
     it('should render all data points in table rows', () => {
-      render(
-        <AnalyticsTrendLineChart title="Test" data={mockTrendData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Test" data={mockTrendData} />);
 
       const table = screen.getByRole('table');
       mockTrendData.forEach((point) => {
@@ -445,27 +397,21 @@ describe('AnalyticsTrendLineChart', () => {
 
   describe('Empty state', () => {
     it('should render gracefully with empty data', () => {
-      const { container } = render(
-        <AnalyticsTrendLineChart title="Empty Trend" data={[]} />,
-      );
+      const { container } = render(<AnalyticsTrendLineChart title="Empty Trend" data={[]} />);
 
       const section = container.querySelector('section');
       expect(section).toBeInTheDocument();
     });
 
     it('should not render chart SVG when data is empty', () => {
-      const { container } = render(
-        <AnalyticsTrendLineChart title="Empty" data={[]} />,
-      );
+      const { container } = render(<AnalyticsTrendLineChart title="Empty" data={[]} />);
 
       const svg = container.querySelector('svg');
       expect(svg).not.toBeInTheDocument();
     });
 
     it('should not render data table when data is empty', () => {
-      render(
-        <AnalyticsTrendLineChart title="Empty" data={[]} />,
-      );
+      render(<AnalyticsTrendLineChart title="Empty" data={[]} />);
 
       // Table should not be present in empty state
       // Note: screen.queryByRole returns null instead of throwing
@@ -474,9 +420,7 @@ describe('AnalyticsTrendLineChart', () => {
     });
 
     it('should still show title in empty state', () => {
-      render(
-        <AnalyticsTrendLineChart title="Empty Chart" data={[]} />,
-      );
+      render(<AnalyticsTrendLineChart title="Empty Chart" data={[]} />);
 
       expect(screen.getByText('Empty Chart')).toBeInTheDocument();
     });
@@ -484,18 +428,14 @@ describe('AnalyticsTrendLineChart', () => {
 
   describe('Accessible data table', () => {
     it('should include sr-only class for screen reader only display', () => {
-      const { container } = render(
-        <AnalyticsTrendLineChart title="Test" data={mockTrendData} />,
-      );
+      const { container } = render(<AnalyticsTrendLineChart title="Test" data={mockTrendData} />);
 
       const table = container.querySelector('table.sr-only');
       expect(table).toBeInTheDocument();
     });
 
     it('should have proper table structure with thead and tbody', () => {
-      const { container } = render(
-        <AnalyticsTrendLineChart title="Test" data={mockTrendData} />,
-      );
+      const { container } = render(<AnalyticsTrendLineChart title="Test" data={mockTrendData} />);
 
       const table = container.querySelector('table.sr-only');
       expect(table?.querySelector('thead')).toBeInTheDocument();
@@ -503,9 +443,7 @@ describe('AnalyticsTrendLineChart', () => {
     });
 
     it('should use th with scope="col" for headers', () => {
-      const { container } = render(
-        <AnalyticsTrendLineChart title="Test" data={mockTrendData} />,
-      );
+      const { container } = render(<AnalyticsTrendLineChart title="Test" data={mockTrendData} />);
 
       const headers = container.querySelectorAll('table.sr-only th[scope="col"]');
       expect(headers.length).toBeGreaterThan(0);
@@ -532,16 +470,12 @@ describe('AnalyticsTrendLineChart', () => {
         />,
       );
 
-      expect(screen.getByText('Test')).toBeInTheDocument();
+      expect(screen.getAllByText('Test').length).toBeGreaterThan(0);
     });
 
     it('should use custom series label', () => {
       render(
-        <AnalyticsTrendLineChart
-          title="Test"
-          data={mockTrendData}
-          seriesLabel="Compliance %"
-        />,
+        <AnalyticsTrendLineChart title="Test" data={mockTrendData} seriesLabel="Compliance %" />,
       );
 
       expect(screen.getByText('Compliance %')).toBeInTheDocument();
@@ -559,27 +493,21 @@ describe('AnalyticsTrendLineChart', () => {
     });
 
     it('should pass axe accessibility checks in empty state', async () => {
-      const { container } = render(
-        <AnalyticsTrendLineChart title="Empty Trend" data={[]} />,
-      );
+      const { container } = render(<AnalyticsTrendLineChart title="Empty Trend" data={[]} />);
 
       const results = await axe(container);
       expect(results).toHaveNoViolations();
     });
 
     it('should have proper semantic heading', () => {
-      render(
-        <AnalyticsTrendLineChart title="Chart Heading" data={mockTrendData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Chart Heading" data={mockTrendData} />);
 
-      const heading = screen.getByText('Chart Heading');
+      const heading = screen.getByRole('heading', { name: 'Chart Heading' });
       expect(heading.tagName).toBe('H3');
     });
 
     it('should have proper section structure', () => {
-      const { container } = render(
-        <AnalyticsTrendLineChart title="Test" data={mockTrendData} />,
-      );
+      const { container } = render(<AnalyticsTrendLineChart title="Test" data={mockTrendData} />);
 
       const section = container.querySelector('section');
       expect(section?.tagName).toBe('SECTION');
@@ -603,17 +531,13 @@ describe('AnalyticsTrendLineChart', () => {
 
   describe('Screen reader support', () => {
     it('should have accessible title for screen readers', () => {
-      render(
-        <AnalyticsTrendLineChart title="Violations Over Time" data={mockTrendData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Violations Over Time" data={mockTrendData} />);
 
-      expect(screen.getByText('Violations Over Time')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Violations Over Time' })).toBeInTheDocument();
     });
 
     it('should provide data table as text alternative to chart', () => {
-      const { container } = render(
-        <AnalyticsTrendLineChart title="Test" data={mockTrendData} />,
-      );
+      const { container } = render(<AnalyticsTrendLineChart title="Test" data={mockTrendData} />);
 
       // Visual chart hidden from screen readers
       const visibleChart = container.querySelector('div[aria-hidden="true"]');
@@ -627,19 +551,15 @@ describe('AnalyticsTrendLineChart', () => {
 
   describe('Responsive behavior', () => {
     it('should render on mobile viewport', () => {
-      render(
-        <AnalyticsTrendLineChart title="Mobile Trend" data={mockTrendData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Mobile Trend" data={mockTrendData} />);
 
-      expect(screen.getByText('Mobile Trend')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Mobile Trend' })).toBeInTheDocument();
     });
 
     it('should render on desktop viewport', () => {
-      render(
-        <AnalyticsTrendLineChart title="Desktop Trend" data={mockTrendData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Desktop Trend" data={mockTrendData} />);
 
-      expect(screen.getByText('Desktop Trend')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Desktop Trend' })).toBeInTheDocument();
     });
 
     it('should render description on any viewport', () => {
@@ -671,9 +591,7 @@ describe('AnalyticsTrendLineChart', () => {
     it('should display correct values in table for single data point', () => {
       const singlePoint: TrendDataPoint[] = [{ label: 'Day 1', value: 42 }];
 
-      render(
-        <AnalyticsTrendLineChart title="Single Point" data={singlePoint} />,
-      );
+      render(<AnalyticsTrendLineChart title="Single Point" data={singlePoint} />);
 
       const table = screen.getByRole('table');
       expect(within(table).getByText('Day 1')).toBeInTheDocument();
@@ -681,15 +599,15 @@ describe('AnalyticsTrendLineChart', () => {
     });
 
     it('should display correct values for multiple data points', () => {
-      render(
-        <AnalyticsTrendLineChart title="Multiple Points" data={mockTrendData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Multiple Points" data={mockTrendData} />);
 
       const table = screen.getByRole('table');
       mockTrendData.forEach((point) => {
         const rows = within(table).getAllByRole('row');
-        const hasPoint = rows.some((row) =>
-          row.textContent?.includes(point.label) && row.textContent?.includes(String(point.value)),
+        const hasPoint = rows.some(
+          (row) =>
+            row.textContent?.includes(point.label) &&
+            row.textContent?.includes(String(point.value)),
         );
         expect(hasPoint).toBe(true);
       });
@@ -702,9 +620,7 @@ describe('AnalyticsTrendLineChart', () => {
         { label: 'C', value: 30 },
       ];
 
-      render(
-        <AnalyticsTrendLineChart title="Ordered" data={orderedData} />,
-      );
+      render(<AnalyticsTrendLineChart title="Ordered" data={orderedData} />);
 
       const table = screen.getByRole('table');
       const rows = within(table).getAllByRole('row');

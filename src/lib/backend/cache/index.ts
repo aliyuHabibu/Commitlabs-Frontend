@@ -141,6 +141,10 @@ export const CacheKey = {
   commitment: (id: string) => `commitlabs:commitment:${id}`,
   userCommitments: (ownerAddress: string) => `commitlabs:user-commitments:${ownerAddress}`,
   marketplaceListings: (queryHash: string) => `commitlabs:marketplace:listings:${queryHash}`,
+  marketplaceStats: () => `commitlabs:marketplace:stats`,
+  marketplaceStatsGeneration: () => `commitlabs:marketplace:stats:generation`,
+  marketplaceStatsInvalidation: () => `commitlabs:marketplace:stats:invalidation`,
+  marketplaceStatsLock: () => `commitlabs:marketplace:stats:lock`,
   commitmentSearch: (queryHash: string) => `commitlabs:commitment-search:${queryHash}`,
 } as const;
 
@@ -154,4 +158,9 @@ export const CacheTTL = {
   MARKETPLACE_STATS_LOCK_TTL: 10,
   MARKETPLACE_STATS_GENERATION_TTL: 86_400,
   COMMITMENT_SEARCH: 15,
+} as const;
+
+/** Cache key prefixes (used for invalidation via `cache.invalidate(prefix)`). */
+export const CACHE_PREFIXES = {
+  MARKETPLACE_LISTINGS: 'commitlabs:marketplace:listings:',
 } as const;

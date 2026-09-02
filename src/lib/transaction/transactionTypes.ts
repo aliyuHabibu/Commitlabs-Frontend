@@ -12,13 +12,13 @@ export type TransactionType = 'settlement' | 'early_exit';
  * Transaction states with explicit lifecycle
  */
 export type TransactionState =
-  | 'idle'           // No transaction in progress
-  | 'pending'        // Transaction submitted, awaiting confirmation
-  | 'confirming'     // Transaction confirmed on-chain, awaiting finalization
-  | 'confirmed'      // Transaction fully confirmed and finalized
-  | 'rejected'       // Transaction rejected by network or contract
+  | 'idle' // No transaction in progress
+  | 'pending' // Transaction submitted, awaiting confirmation
+  | 'confirming' // Transaction confirmed on-chain, awaiting finalization
+  | 'confirmed' // Transaction fully confirmed and finalized
+  | 'rejected' // Transaction rejected by network or contract
   | 'reconciliation' // Transaction needs manual reconciliation
-  | 'failed';        // Transaction failed due to error
+  | 'failed'; // Transaction failed due to error
 
 /**
  * Valid state transitions for the transaction state machine
@@ -28,7 +28,7 @@ export const VALID_TRANSITIONS: Record<TransactionState, TransactionState[]> = {
   pending: ['confirming', 'rejected', 'failed'],
   confirming: ['confirmed', 'rejected', 'failed'],
   confirmed: [], // Terminal state
-  rejected: ['reconciliation', 'idle'], // Can retry from rejected
+  rejected: ['reconciliation', 'idle', 'pending'], // Can retry from rejected
   reconciliation: ['pending', 'idle'], // Can retry or abandon
   failed: ['idle'], // Can retry from failed
 };
@@ -83,25 +83,25 @@ export interface TransactionMetadata {
 export const TRANSACTION_BOUNDS = {
   /** Maximum number of retry attempts */
   MAX_RETRY_ATTEMPTS: 3,
-  
+
   /** Maximum concurrent transactions per commitment */
   MAX_CONCURRENT_TRANSACTIONS: 1,
-  
+
   /** Polling interval in milliseconds */
   POLLING_INTERVAL_MS: 2000,
-  
+
   /** Maximum polling duration in milliseconds */
   MAX_POLLING_DURATION_MS: 60000, // 1 minute
-  
+
   /** Maximum number of polling attempts */
   MAX_POLLING_ATTEMPTS: 30,
-  
+
   /** Transaction state TTL in milliseconds (for cleanup) */
   TRANSACTION_STATE_TTL_MS: 24 * 60 * 60 * 1000, // 24 hours
-  
+
   /** Maximum transaction metadata size in bytes */
   MAX_METADATA_SIZE_BYTES: 4096,
-  
+
   /** Maximum error message length */
   MAX_ERROR_MESSAGE_LENGTH: 500,
 } as const;

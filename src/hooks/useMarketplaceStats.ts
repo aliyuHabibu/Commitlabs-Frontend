@@ -1,14 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type StatsClientState =
-  | 'IDLE'
-  | 'FETCHING'
-  | 'REVALIDATING'
-  | 'FRESH'
-  | 'STALE'
-  | 'STALE_IF_ERROR'
-  | 'EMPTY'
-  | 'ERROR';
+  'IDLE' | 'FETCHING' | 'REVALIDATING' | 'FRESH' | 'STALE' | 'STALE_IF_ERROR' | 'EMPTY' | 'ERROR';
 
 export interface MarketplaceStatsData {
   activeListings: number;
@@ -18,7 +11,13 @@ export interface MarketplaceStatsData {
 }
 
 export interface StatsClientMeta {
-  freshness: 'FRESH' | 'STALE_WHILE_REVALIDATE' | 'STALE_IF_ERROR' | 'EMPTY' | 'REVALIDATING_LOCK' | 'UNKNOWN';
+  freshness:
+    | 'FRESH'
+    | 'STALE_WHILE_REVALIDATE'
+    | 'STALE_IF_ERROR'
+    | 'EMPTY'
+    | 'REVALIDATING_LOCK'
+    | 'UNKNOWN';
   ageSeconds: number;
   generation: number;
   lastValidGeneration: number;
@@ -111,10 +110,7 @@ function classifyStatsClientState(
   return hasStats ? 'STALE' : 'EMPTY';
 }
 
-function classifyClientError(
-  res: Response | null,
-  body: unknown,
-): StatsClientError {
+function classifyClientError(res: Response | null, body: unknown): StatsClientError {
   const status = res?.status ?? 0;
   const errBody =
     body && typeof body === 'object' && 'error' in body
@@ -123,37 +119,50 @@ function classifyClientError(
 
   const code: string =
     (errBody && typeof errBody.code === 'string' && errBody.code) ||
-    (status === 404 ? 'MARKETPLACE_DISABLED' :
-      status === 429 ? 'TOO_MANY_REQUESTS' :
-        status === 408 ? 'TIMEOUT' :
-          status === 500 ? 'INTERNAL_ERROR' :
-            status === 502 ? 'BAD_GATEWAY' :
-              status === 503 ? 'SERVICE_UNAVAILABLE' :
-                status === 504 ? 'GATEWAY_TIMEOUT' :
-                  status === 400 ? 'BAD_REQUEST' :
-                    status === 401 ? 'UNAUTHORIZED' :
-                      status === 403 ? 'FORBIDDEN' :
-                        status >= 400 ? `HTTP_${status}` : 'NETWORK_ERROR');
+    (status === 404
+      ? 'MARKETPLACE_DISABLED'
+      : status === 429
+        ? 'TOO_MANY_REQUESTS'
+        : status === 408
+          ? 'TIMEOUT'
+          : status === 500
+            ? 'INTERNAL_ERROR'
+            : status === 502
+              ? 'BAD_GATEWAY'
+              : status === 503
+                ? 'SERVICE_UNAVAILABLE'
+                : status === 504
+                  ? 'GATEWAY_TIMEOUT'
+                  : status === 400
+                    ? 'BAD_REQUEST'
+                    : status === 401
+                      ? 'UNAUTHORIZED'
+                      : status === 403
+                        ? 'FORBIDDEN'
+                        : status >= 400
+                          ? `HTTP_${status}`
+                          : 'NETWORK_ERROR');
 
   const message: string =
-    (errBody && typeof errBody.message === 'string' && errBody.message) ||
-    status === 0 ? 'Network request failed. Check your connection and try again.' :
-      `Stats request failed (HTTP ${status}).`;
+    (errBody && typeof errBody.message === 'string' && errBody.message) || status === 0
+      ? 'Network request failed. Check your connection and try again.'
+      : `Stats request failed (HTTP ${status}).`;
 
   const retryable =
-    code === 'MARKETPLACE_DISABLED' ? false :
-      (status === 0) ||
-      status === 408 ||
-      status === 429 ||
-      status === 500 ||
-      status === 502 ||
-      status === 503 ||
-      status === 504 ||
-      (errBody && (errBody as { retryable?: unknown }).retryable === true);
+    code === 'MARKETPLACE_DISABLED'
+      ? false
+      : status === 0 ||
+        status === 408 ||
+        status === 429 ||
+        status === 500 ||
+        status === 502 ||
+        status === 503 ||
+        status === 504 ||
+        (errBody && (errBody as { retryable?: unknown }).retryable === true);
 
   const retryAfterSeconds =
     typeof (errBody as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds === 'number'
-      ? ((errBody as { retryAfterSeconds: number }).retryAfterSeconds)
+      ? (errBody as { retryAfterSeconds: number }).retryAfterSeconds
       : status === 429 || status === 503
         ? 30
         : undefined;
@@ -163,10 +172,19 @@ function classifyClientError(
       ? (errBody as { correlationId: string }).correlationId
       : undefined;
 
-  return { code, message, retryable, retryAfterSeconds, correlationId, httpStatus: status || undefined };
+  return {
+    code,
+    message,
+    retryable,
+    retryAfterSeconds,
+    correlationId,
+    httpStatus: status || undefined,
+  };
 }
 
-export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidate?: boolean } = {}): UseMarketplaceStatsResult {
+export function useMarketplaceStats(
+  options: { disabled?: boolean; autoRevalidate?: boolean } = {},
+): UseMarketplaceStatsResult {
   const { disabled = false, autoRevalidate = true } = options;
 
   const [stats, setStats] = useState<MarketplaceStatsData>(DEFAULT_STATS);
@@ -178,11 +196,14 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
   const [lastAttemptedAt, setLastAttemptedAt] = useState<number | null>(null);
   const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null);
 
+  const stateRef = useRef<StatsClientState>('IDLE');
   const generationRef = useRef(0);
   const pendingRef = useRef<PendingStatsRequest | null>(null);
   const etagRef = useRef<string | null>(null);
   const lastFetchedAtRef = useRef<number | null>(null);
-  const lastValidPayloadRef = useRef<{ stats: MarketplaceStatsData; meta: StatsClientMeta } | null>(null);
+  const lastValidPayloadRef = useRef<{ stats: MarketplaceStatsData; meta: StatsClientMeta } | null>(
+    null,
+  );
   const autoRevalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelPending = useCallback((): void => {
@@ -207,6 +228,7 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
     }
     setStats(DEFAULT_STATS);
     setMeta(null);
+    stateRef.current = 'IDLE';
     setState('IDLE');
     setError(null);
     setRetryCount(0);
@@ -239,10 +261,12 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
         isRevalidation,
       };
       setLastAttemptedAt(Date.now());
-      setState((prev) => {
-        if (prev === 'IDLE' || prev === 'EMPTY' || prev === 'ERROR') return 'FETCHING';
-        return 'REVALIDATING';
-      });
+      const nextFetchState: StatsClientState =
+        stateRef.current === 'IDLE' || stateRef.current === 'EMPTY' || stateRef.current === 'ERROR'
+          ? 'FETCHING'
+          : 'REVALIDATING';
+      stateRef.current = nextFetchState;
+      setState(nextFetchState);
       setError(null);
 
       let attempt = 0;
@@ -256,11 +280,11 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
 
         try {
           const headers: Record<string, string> = { Accept: 'application/json' };
-          if (etagRef.current && !force) {
+          if (etagRef.current && (isRevalidation || !force)) {
             headers['If-None-Match'] = etagRef.current;
           }
 
-          const res = await fetch('/api/marketplace/stats', {
+          const res = await globalThis.fetch('/api/marketplace/stats', {
             method: 'GET',
             headers,
             signal: abort.signal,
@@ -275,7 +299,8 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
             setLastSuccessAt(now);
             setRetryCount(attempt - 1);
             setError(null);
-            setState((s) => (s === 'FETCHING' ? staleSnapshot ? 'FRESH' : 'FRESH' : s === 'REVALIDATING' ? 'FRESH' : s));
+            stateRef.current = 'FRESH';
+            setState('FRESH');
             return;
           }
 
@@ -299,10 +324,11 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
 
             if (!classified.retryable || attempt > CLIENT_MAX_RETRIES) break;
 
-            const delayMs =
-              classified.retryAfterSeconds
-                ? classified.retryAfterSeconds * 1000
-                : CLIENT_RETRY_BASE_MS * Math.pow(2, attempt - 1);
+            setRetryCount(attempt);
+            setError(classified);
+            const delayMs = classified.retryAfterSeconds
+              ? classified.retryAfterSeconds * 1000
+              : CLIENT_RETRY_BASE_MS * Math.pow(2, attempt - 1);
 
             await new Promise<void>((r) => {
               const t = setTimeout(r, delayMs);
@@ -343,7 +369,7 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
                   ...DEFAULT_META,
                   freshness:
                     typeof (rawMeta as { freshness?: unknown }).freshness === 'string'
-                      ? ((rawMeta as { freshness: StatsClientMeta['freshness'] }).freshness)
+                      ? (rawMeta as { freshness: StatsClientMeta['freshness'] }).freshness
                       : 'UNKNOWN',
                   ageSeconds:
                     typeof (rawMeta as { ageSeconds?: unknown }).ageSeconds === 'number'
@@ -354,11 +380,11 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
                       ? (rawMeta as { generation: number }).generation
                       : 0,
                   lastValidGeneration:
-                    typeof (rawMeta as { lastValidGeneration?: unknown }).lastValidGeneration === 'number'
+                    typeof (rawMeta as { lastValidGeneration?: unknown }).lastValidGeneration ===
+                    'number'
                       ? (rawMeta as { lastValidGeneration: number }).lastValidGeneration
                       : 0,
-                  cacheHit:
-                    (rawMeta as { cacheHit?: unknown }).cacheHit === true,
+                  cacheHit: (rawMeta as { cacheHit?: unknown }).cacheHit === true,
                   state:
                     typeof (rawMeta as { state?: unknown }).state === 'string'
                       ? (rawMeta as { state: string }).state
@@ -372,11 +398,13 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
                       ? (rawMeta as { expiresAtIso: string }).expiresAtIso
                       : undefined,
                   sourceCorrelationId:
-                    typeof (rawMeta as { sourceCorrelationId?: unknown }).sourceCorrelationId === 'string'
+                    typeof (rawMeta as { sourceCorrelationId?: unknown }).sourceCorrelationId ===
+                    'string'
                       ? (rawMeta as { sourceCorrelationId: string }).sourceCorrelationId
                       : undefined,
                   requestedGeneration:
-                    typeof (rawMeta as { requestedGeneration?: unknown }).requestedGeneration === 'number'
+                    typeof (rawMeta as { requestedGeneration?: unknown }).requestedGeneration ===
+                    'number'
                       ? (rawMeta as { requestedGeneration: number }).requestedGeneration
                       : undefined,
                   servedGeneration:
@@ -410,12 +438,18 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
 
           const freshnessStr = metaObj.freshness;
           const nextState = classifyStatsClientState(
-            state,
+            stateRef.current,
             metaObj.ageSeconds * 1000,
             false,
-            data.activeListings > 0 || data.typeBreakdown.Safe + data.typeBreakdown.Balanced + data.typeBreakdown.Aggressive > 0 || true,
+            data.activeListings > 0 ||
+              data.typeBreakdown.Safe +
+                data.typeBreakdown.Balanced +
+                data.typeBreakdown.Aggressive >
+                0 ||
+              true,
             freshnessStr,
           );
+          stateRef.current = nextState;
           setState(nextState);
           return;
         } catch (fetchErr: unknown) {
@@ -449,12 +483,14 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
       if (staleSnapshot) {
         setStats(staleSnapshot.stats);
         setMeta(staleSnapshot.meta);
+        stateRef.current = 'STALE_IF_ERROR';
         setState('STALE_IF_ERROR');
       } else {
+        stateRef.current = 'ERROR';
         setState('ERROR');
       }
     },
-    [disabled, cancelPending, bumpGeneration, state],
+    [disabled, cancelPending, bumpGeneration],
   );
 
   const fetch = useCallback(
@@ -470,10 +506,8 @@ export function useMarketplaceStats(options: { disabled?: boolean; autoRevalidat
 
   useEffect(() => {
     if (disabled) return;
-    if (state === 'IDLE') {
-      doFetch(false, false).catch(() => {});
-    }
-  }, [disabled, state, doFetch]);
+    doFetch(false, false).catch(() => {});
+  }, [disabled, doFetch]);
 
   useEffect(() => {
     if (disabled || !autoRevalidate) return;

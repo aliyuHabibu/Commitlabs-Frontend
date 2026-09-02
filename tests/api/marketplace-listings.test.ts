@@ -56,12 +56,14 @@ import { assertMutationCsrf } from '@/lib/backend/csrf';
 import { listMarketplaceListings, marketplaceService } from '@/lib/backend/services/marketplace';
 import { parseJsonWithLimit } from '@/lib/backend/jsonBodyLimit';
 import { idempotencyService } from '@/lib/backend/idempotency';
-import { CsrfValidationError } from '@/lib/backend/errors';
+import { verifyAuth } from '@/lib/backend/requireAuth';
+import { CsrfValidationError, UnauthorizedError } from '@/lib/backend/errors';
 
 const mockedCheckRateLimit = vi.mocked(checkRateLimit);
 const mockedAssertMutationCsrf = vi.mocked(assertMutationCsrf);
 const mockedListMarketplaceListings = vi.mocked(listMarketplaceListings);
 const mockedCreateListing = vi.mocked(marketplaceService.createListing);
+const mockedVerifyAuth = vi.mocked(verifyAuth);
 const mockedParseJsonWithLimit = vi.mocked(parseJsonWithLimit);
 const mockedIdempotencyGetRecord = vi.mocked(idempotencyService.getRecord);
 const mockedIdempotencyStart = vi.mocked(idempotencyService.start);

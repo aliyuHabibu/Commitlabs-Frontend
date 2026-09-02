@@ -1,40 +1,45 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { usePaginatedListings } from '@/hooks/usePaginatedListings';
 import { useMarketplaceStats } from '@/hooks/useMarketplaceStats';
+
+// fake-timer-aware replacement for waitFor: advances the mocked clock so the
+// async hooks (which resolve via microtasks) can settle, since the project's
+// @testing-library waitFor does not auto-advance sinon fake timers.
+async function fakeWaitFor<T>(cb: () => T | Promise<T>, timeoutMs: number = 5000): Promise<T> {
+  const start = Date.now();
+  let lastError: unknown = new Error('waitFor timed out');
+  while (Date.now() - start < timeoutMs) {
+    try {
+      return await cb();
+    } catch (e) {
+      lastError = e;
+    }
+    await vi.advanceTimersByTimeAsync(10);
+  }
+  throw lastError;
+}
 
 // ───────────────────────────────────────────────────────────────────────
 // Fetch mock plumbing (shared)
 // ───────────────────────────────────────────────────────────────────────
 
-interface FetchCall {
-  url: string;
-  res: () => { status: number; json?: unknown; headers?: Record<string, string> } | Promise<{ status: number; json?: unknown; headers?: Record<string, string> }>;
-}
-
-const fetchCalls: FetchCall[] = [];
-
-function registerFetch(matcher: (url: string) => boolean, res: FetchCall['res']) {
-  fetchCalls.push({ url: matcher.toString(), res });
-}
-
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.useFakeTimers();
-  fetchCalls.length = 0;
-  fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    for (let i = fetchCalls.length - 1; i >= 0; i--) {
-      // Fall through: try last registered first
-    }
+  fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     if (url.includes('/api/marketplace/listings')) {
       const qs = new URLSearchParams(url.split('?')[1] ?? '');
       const page = Number(qs.get('page') || 1);
       const pageSize = Number(qs.get('pageSize') || 9);
       const sp = (page - 1) * pageSize;
       if (page > 3) {
-        return new Response(JSON.stringify({ success: true, data: { items: [], total: 25 } }), { status: 200 });
+        return new Response(JSON.stringify({ success: true, data: { items: [], total: 25 } }), {
+          status: 200,
+        });
       }
       const items = Array.from({ length: pageSize }).map((_, i) => ({
         listingId: `L-${sp + i + 1}`,
@@ -46,7 +51,9 @@ beforeEach(() => {
         maxLoss: i % 10,
         price: 1100 + sp + i,
       }));
-      return new Response(JSON.stringify({ success: true, data: { items, total: 3 * pageSize } }), { status: 200 });
+      return new Response(JSON.stringify({ success: true, data: { items, total: 3 * pageSize } }), {
+        status: 200,
+      });
     }
     if (url.includes('/api/marketplace/stats')) {
       const data = {
@@ -70,7 +77,10 @@ beforeEach(() => {
         headers: { 'x-correlation-id': 'cid-123', ETag: '"etag-stats-1"' },
       });
     }
-    return new Response(JSON.stringify({ success: false, error: { code: 'NOT_FOUND', message: 'nope' } }), { status: 404 });
+    return new Response(
+      JSON.stringify({ success: false, error: { code: 'NOT_FOUND', message: 'nope' } }),
+      { status: 404 },
+    );
   });
   globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 });
@@ -92,7 +102,7 @@ describe('usePaginatedListings — state machine transitions', () => {
     expect(result.current.isLoadingInitial).toBe(true);
     expect(result.current.isLoading).toBe(true);
 
-    await waitFor(() => expect(result.current.state).toBe('SUCCESS'));
+    await fakeWaitFor(() => expect(result.current.state).toBe('SUCCESS'));
     expect(result.current.listings.length).toBeGreaterThan(0);
     expect(result.current.page).toBe(1);
     expect(result.current.isLoadingInitial).toBe(false);
@@ -110,31 +120,81 @@ describe('usePaginatedListings — state machine transitions', () => {
 
   it('dedupes duplicate items by id in append and refresh', async () => {
     const dupFetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const qs = new URLSearchParams(url.split('?')[1] ?? '');
       const page = Number(qs.get('page') || 1);
       if (page === 1) {
         const items = [
-          { listingId: 'A', type: 'Safe', complianceScore: 90, amount: 100, remainingDays: 10, currentYield: 5, maxLoss: 2, price: 110 },
-          { listingId: 'B', type: 'Balanced', complianceScore: 80, amount: 200, remainingDays: 20, currentYield: 8, maxLoss: 5, price: 220 },
-          { listingId: 'A', type: 'Safe', complianceScore: 90, amount: 100, remainingDays: 10, currentYield: 5, maxLoss: 2, price: 110 }, // dup A within page 1
+          {
+            listingId: 'A',
+            type: 'Safe',
+            complianceScore: 90,
+            amount: 100,
+            remainingDays: 10,
+            currentYield: 5,
+            maxLoss: 2,
+            price: 110,
+          },
+          {
+            listingId: 'B',
+            type: 'Balanced',
+            complianceScore: 80,
+            amount: 200,
+            remainingDays: 20,
+            currentYield: 8,
+            maxLoss: 5,
+            price: 220,
+          },
+          {
+            listingId: 'A',
+            type: 'Safe',
+            complianceScore: 90,
+            amount: 100,
+            remainingDays: 10,
+            currentYield: 5,
+            maxLoss: 2,
+            price: 110,
+          }, // dup A within page 1
         ];
-        return new Response(JSON.stringify({ success: true, data: { items, total: 5 } }), { status: 200 });
+        return new Response(JSON.stringify({ success: true, data: { items, total: 5 } }), {
+          status: 200,
+        });
       }
       const items = [
-        { listingId: 'B', type: 'Balanced', complianceScore: 80, amount: 200, remainingDays: 20, currentYield: 8, maxLoss: 5, price: 220 }, // dup B across pages
-        { listingId: 'C', type: 'Aggressive', complianceScore: 70, amount: 300, remainingDays: 30, currentYield: 12, maxLoss: 10, price: 330 },
+        {
+          listingId: 'B',
+          type: 'Balanced',
+          complianceScore: 80,
+          amount: 200,
+          remainingDays: 20,
+          currentYield: 8,
+          maxLoss: 5,
+          price: 220,
+        }, // dup B across pages
+        {
+          listingId: 'C',
+          type: 'Aggressive',
+          complianceScore: 70,
+          amount: 300,
+          remainingDays: 30,
+          currentYield: 12,
+          maxLoss: 10,
+          price: 330,
+        },
       ];
-      return new Response(JSON.stringify({ success: true, data: { items, total: 5 } }), { status: 200 });
+      return new Response(JSON.stringify({ success: true, data: { items, total: 5 } }), {
+        status: 200,
+      });
     });
     globalThis.fetch = dupFetch as unknown as typeof globalThis.fetch;
 
     const { result } = renderHook(() => usePaginatedListings({}, 3, false));
-    await waitFor(() => expect(result.current.state).toBe('SUCCESS'));
+    await fakeWaitFor(() => expect(result.current.state).toBe('SUCCESS'));
     expect(result.current.listings.map((l) => l.id)).toEqual(['A', 'B']);
 
     await act(() => result.current.loadMore());
-    await waitFor(() => expect(fetchMock ?? dupFetch).toHaveBeenCalledTimes(2));
+    await fakeWaitFor(() => expect(dupFetch).toHaveBeenCalledTimes(2));
 
     expect(result.current.listings.map((l) => l.id)).toEqual(['A', 'B', 'C']);
   });
@@ -146,8 +206,26 @@ describe('usePaginatedListings — state machine transitions', () => {
           success: true,
           data: {
             items: [
-              { listingId: 'X1', type: 'Safe', complianceScore: 90, amount: 100, remainingDays: 10, currentYield: 5, maxLoss: 2, price: 110 },
-              { listingId: 'X2', type: 'Balanced', complianceScore: 80, amount: 200, remainingDays: 20, currentYield: 8, maxLoss: 5, price: 220 },
+              {
+                listingId: 'X1',
+                type: 'Safe',
+                complianceScore: 90,
+                amount: 100,
+                remainingDays: 10,
+                currentYield: 5,
+                maxLoss: 2,
+                price: 110,
+              },
+              {
+                listingId: 'X2',
+                type: 'Balanced',
+                complianceScore: 80,
+                amount: 200,
+                remainingDays: 20,
+                currentYield: 8,
+                maxLoss: 5,
+                price: 220,
+              },
             ],
             total: 2,
           },
@@ -158,16 +236,22 @@ describe('usePaginatedListings — state machine transitions', () => {
     globalThis.fetch = exhaustFetch as unknown as typeof globalThis.fetch;
 
     const { result } = renderHook(() => usePaginatedListings({}, 9, false));
-    await waitFor(() => expect(result.current.state).toBe('EXHAUSTED'));
+    await fakeWaitFor(() => expect(result.current.state).toBe('EXHAUSTED'));
     expect(result.current.hasMore).toBe(false);
   });
 
   it('preserves stale data (ERROR_STALE) on retry exhaustion, exposing retryCount and error', async () => {
-    let failFetchCalls = 0;
     const failFetch = vi.fn(async () => {
-      failFetchCalls += 1;
       return new Response(
-        JSON.stringify({ success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'down', retryable: true, retryAfterSeconds: 10 } }),
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'down',
+            retryable: true,
+            retryAfterSeconds: 10,
+          },
+        }),
         { status: 503 },
       );
     });
@@ -175,7 +259,7 @@ describe('usePaginatedListings — state machine transitions', () => {
 
     const { result } = renderHook(() => usePaginatedListings({}, 9, false));
 
-    await waitFor(() => expect(result.current.state).toBe('ERROR_EMPTY'));
+    await fakeWaitFor(() => expect(result.current.state).toBe('ERROR_EMPTY'));
     expect(result.current.error).toBeTruthy();
     expect(result.current.error?.retryable).toBe(true);
     expect(result.current.retryCount).toBeGreaterThanOrEqual(1);
@@ -191,15 +275,16 @@ describe('usePaginatedListings — state machine transitions', () => {
         });
       }
       await new Promise((r) => setTimeout(r, 1_000));
-      return new Response(JSON.stringify({ success: true, data: { items: [], total: 0 } }), { status: 200 });
+      return new Response(JSON.stringify({ success: true, data: { items: [], total: 0 } }), {
+        status: 200,
+      });
     });
     globalThis.fetch = sigFetch as unknown as typeof globalThis.fetch;
 
     const initialQuery = { type: 'Safe' };
-    const { result, rerender } = renderHook(
-      ({ qp }) => usePaginatedListings(qp, 9, false),
-      { initialProps: { qp: initialQuery } },
-    );
+    const { result, rerender } = renderHook(({ qp }) => usePaginatedListings(qp, 9, false), {
+      initialProps: { qp: initialQuery },
+    });
 
     act(() => {
       vi.advanceTimersByTime(100);
@@ -218,7 +303,7 @@ describe('usePaginatedListings — state machine transitions', () => {
 
   it('refresh() bumps generation, aborts previous, and resets page to 1', async () => {
     const { result } = renderHook(() => usePaginatedListings({}, 9, false));
-    await waitFor(() => expect(result.current.state).toBe('SUCCESS'));
+    await fakeWaitFor(() => expect(result.current.state).toBe('SUCCESS'));
     const beforeGen = result.current.generation;
     const callsBefore = fetchMock.mock.calls.length;
 
@@ -231,7 +316,9 @@ describe('usePaginatedListings — state machine transitions', () => {
   it('loadMore() is a no-op when LOADING_MORE state is already active', async () => {
     const slowFetch = vi.fn(async () => {
       await new Promise((r) => setTimeout(r, 5_000));
-      return new Response(JSON.stringify({ success: true, data: { items: [], total: 100 } }), { status: 200 });
+      return new Response(JSON.stringify({ success: true, data: { items: [], total: 100 } }), {
+        status: 200,
+      });
     });
     globalThis.fetch = slowFetch as unknown as typeof globalThis.fetch;
 
@@ -256,12 +343,14 @@ describe('usePaginatedListings — state machine transitions', () => {
 
 describe('useMarketplaceStats — client freshness / state machine / dedup', () => {
   it('transitions IDLE → FETCHING → FRESH on successful mount, populates meta', async () => {
-    const { result } = renderHook(() => useMarketplaceStats({ disabled: false, autoRevalidate: false }));
+    const { result } = renderHook(() =>
+      useMarketplaceStats({ disabled: false, autoRevalidate: false }),
+    );
 
     expect(result.current.state).toBe('FETCHING');
     expect(result.current.isFetching).toBe(true);
 
-    await waitFor(() => expect(result.current.state).toBe('FRESH'));
+    await fakeWaitFor(() => expect(result.current.state).toBe('FRESH'));
     expect(result.current.isFetching).toBe(false);
     expect(result.current.stats.activeListings).toBe(6);
     expect(result.current.meta).toBeTruthy();
@@ -282,11 +371,13 @@ describe('useMarketplaceStats — client freshness / state machine / dedup', () 
   });
 
   it('revalidates with If-None-Match when a prior ETag exists', async () => {
-    const { result } = renderHook(() => useMarketplaceStats({ disabled: false, autoRevalidate: false }));
-    await waitFor(() => expect(result.current.state).toBe('FRESH'));
+    const { result } = renderHook(() =>
+      useMarketplaceStats({ disabled: false, autoRevalidate: false }),
+    );
+    await fakeWaitFor(() => expect(result.current.state).toBe('FRESH'));
 
     await act(() => result.current.revalidate());
-    await waitFor(() => expect(result.current.state).toBe('FRESH'));
+    await fakeWaitFor(() => expect(result.current.state).toBe('FRESH'));
 
     const secondCall = fetchMock.mock.calls[1];
     const req = secondCall?.[1];
@@ -296,10 +387,20 @@ describe('useMarketplaceStats — client freshness / state machine / dedup', () 
 
   it('transitions to STALE_IF_ERROR preserving last payload on repeated 5xx', async () => {
     const failFetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes('/api/marketplace/stats')) {
         return new Response(
-          JSON.stringify({ success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'down', retryable: true, retryAfterSeconds: 30, correlationId: 'errc' } }),
+          JSON.stringify({
+            success: false,
+            error: {
+              code: 'SERVICE_UNAVAILABLE',
+              message: 'down',
+              retryable: true,
+              retryAfterSeconds: 30,
+              correlationId: 'errc',
+            },
+          }),
           { status: 503, headers: { 'x-correlation-id': 'cid-error' } },
         );
       }
@@ -307,8 +408,10 @@ describe('useMarketplaceStats — client freshness / state machine / dedup', () 
     });
     globalThis.fetch = failFetch as unknown as typeof globalThis.fetch;
 
-    const { result } = renderHook(() => useMarketplaceStats({ disabled: false, autoRevalidate: false }));
-    await waitFor(() => {
+    const { result } = renderHook(() =>
+      useMarketplaceStats({ disabled: false, autoRevalidate: false }),
+    );
+    await fakeWaitFor(() => {
       const s = result.current.state;
       expect(s === 'ERROR' || s === 'STALE_IF_ERROR' || result.current.retryCount >= 1).toBe(true);
     });
@@ -318,8 +421,10 @@ describe('useMarketplaceStats — client freshness / state machine / dedup', () 
   });
 
   it('reset() wipes payload/meta/error and bumps generation', async () => {
-    const { result } = renderHook(() => useMarketplaceStats({ disabled: false, autoRevalidate: false }));
-    await waitFor(() => expect(result.current.state).toBe('FRESH'));
+    const { result } = renderHook(() =>
+      useMarketplaceStats({ disabled: false, autoRevalidate: false }),
+    );
+    await fakeWaitFor(() => expect(result.current.state).toBe('FRESH'));
     const preGen = result.current.generation;
 
     act(() => result.current.reset());
@@ -332,8 +437,10 @@ describe('useMarketplaceStats — client freshness / state machine / dedup', () 
   });
 
   it('fetch(force=true) bypasses local freshness gating', async () => {
-    const { result } = renderHook(() => useMarketplaceStats({ disabled: false, autoRevalidate: false }));
-    await waitFor(() => expect(result.current.state).toBe('FRESH'));
+    const { result } = renderHook(() =>
+      useMarketplaceStats({ disabled: false, autoRevalidate: false }),
+    );
+    await fakeWaitFor(() => expect(result.current.state).toBe('FRESH'));
     const before = fetchMock.mock.calls.length;
 
     await act(() => result.current.fetch(true));
@@ -341,8 +448,10 @@ describe('useMarketplaceStats — client freshness / state machine / dedup', () 
   });
 
   it('generation bumps on revalidate() to dedupe stale responses', async () => {
-    const { result } = renderHook(() => useMarketplaceStats({ disabled: false, autoRevalidate: false }));
-    await waitFor(() => expect(result.current.state).toBe('FRESH'));
+    const { result } = renderHook(() =>
+      useMarketplaceStats({ disabled: false, autoRevalidate: false }),
+    );
+    await fakeWaitFor(() => expect(result.current.state).toBe('FRESH'));
     const g1 = result.current.generation;
     await act(() => result.current.revalidate());
     const g2 = result.current.generation;

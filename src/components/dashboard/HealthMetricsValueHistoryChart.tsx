@@ -31,7 +31,6 @@ import {
   formatLocaleNumber,
   normalizeChartData,
 } from './chartConfig';
-import { downsampleSeries } from '../../utils/downsample';
 
 export interface HealthMetricsValueHistoryChartProps {
   data: Array<{ date: string; currentValue: number; initialAmount?: number }>;
@@ -83,7 +82,7 @@ const HealthMetricsValueHistoryChartComponent: React.FC<HealthMetricsValueHistor
 }) => {
   const reducedMotion = useReducedMotion();
   const safeData = useMemo(() => normalizeChartData(data), [data]);
-
+  const safeBenchmarkData = useMemo(() => normalizeChartData(benchmarkData ?? []), [benchmarkData]);
   const hasBenchmark = Boolean(safeBenchmarkData.length > 0);
 
   const benchmarkByDate = useMemo(() => {
@@ -135,7 +134,7 @@ const HealthMetricsValueHistoryChartComponent: React.FC<HealthMetricsValueHistor
     <>
       <div className="w-full h-full min-h-[350px] bg-[#111] rounded-xl p-4 sm:p-6 border border-[#222] shadow-sm">
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={boundedData} margin={CHART_MARGIN_DEFAULT}>
+          <LineChart data={mergedData} margin={CHART_MARGIN_DEFAULT}>
             <CartesianGrid {...CHART_GRID_PROPS} />
             <XAxis {...CHART_X_AXIS_PROPS} />
             <YAxis {...CHART_Y_AXIS_PROPS} tickFormatter={yTickFormatter} />

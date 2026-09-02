@@ -3,8 +3,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { pollWithBounds, createTimeoutAbortController, debouncePolling, throttlePolling } from '../transactionPolling';
-import { DEFAULT_POLLING_CONFIG, TransactionErrorType } from '../transactionTypes';
+import {
+  pollWithBounds,
+  createTimeoutAbortController,
+  debouncePolling,
+  throttlePolling,
+} from '../transactionPolling';
 
 describe('pollWithBounds', () => {
   beforeEach(() => {
@@ -22,7 +26,7 @@ describe('pollWithBounds', () => {
       return attempts;
     });
 
-    const result = await pollWithBounds({
+    const resultPromise = pollWithBounds({
       pollFn,
       shouldStop: (data) => data >= 3,
       config: {
@@ -31,6 +35,9 @@ describe('pollWithBounds', () => {
         maxAttempts: 10,
       },
     });
+
+    await vi.advanceTimersByTimeAsync(400);
+    const result = await resultPromise;
 
     expect(result.success).toBe(true);
     expect(result.data).toBe(3);
@@ -43,7 +50,7 @@ describe('pollWithBounds', () => {
       return 1;
     });
 
-    const result = await pollWithBounds({
+    const resultPromise = pollWithBounds({
       pollFn,
       shouldStop: () => false,
       config: {
@@ -52,6 +59,9 @@ describe('pollWithBounds', () => {
         maxAttempts: 10,
       },
     });
+
+    await vi.advanceTimersByTimeAsync(300);
+    const result = await resultPromise;
 
     expect(result.success).toBe(false);
     expect(result.error).not.toBeNull();
@@ -63,15 +73,18 @@ describe('pollWithBounds', () => {
       return 1;
     });
 
-    const result = await pollWithBounds({
+    const resultPromise = pollWithBounds({
       pollFn,
       shouldStop: () => false,
       config: {
-        intervalMs: 10,
+        intervalMs: 100,
         maxDurationMs: 1000,
         maxAttempts: 2,
       },
     });
+
+    await vi.advanceTimersByTimeAsync(300);
+    const result = await resultPromise;
 
     expect(result.success).toBe(false);
     expect(result.error).not.toBeNull();
@@ -88,15 +101,18 @@ describe('pollWithBounds', () => {
       return attempts;
     });
 
-    const result = await pollWithBounds({
+    const resultPromise = pollWithBounds({
       pollFn,
       shouldStop: (data) => data >= 3,
       config: {
-        intervalMs: 10,
+        intervalMs: 100,
         maxDurationMs: 1000,
         maxAttempts: 10,
       },
     });
+
+    await vi.advanceTimersByTimeAsync(400);
+    const result = await resultPromise;
 
     expect(result.success).toBe(true);
     expect(result.data).toBe(3);
@@ -109,20 +125,22 @@ describe('pollWithBounds', () => {
     });
 
     const abortController = new AbortController();
-    
-    // Abort after 50ms
-    setTimeout(() => abortController.abort(), 50);
 
-    const result = await pollWithBounds({
+    setTimeout(() => abortController.abort(), 150);
+
+    const resultPromise = pollWithBounds({
       pollFn,
       shouldStop: () => false,
       config: {
-        intervalMs: 10,
+        intervalMs: 100,
         maxDurationMs: 1000,
         maxAttempts: 100,
       },
       signal: abortController.signal,
     });
+
+    await vi.advanceTimersByTimeAsync(400);
+    const result = await resultPromise;
 
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('aborted');
@@ -201,19 +219,19 @@ describe('createTimeoutAbortController', () => {
 
   it('should abort after timeout', () => {
     const controller = createTimeoutAbortController(100);
-    
+
     expect(controller.signal.aborted).toBe(false);
-    
+
     vi.advanceTimersByTime(100);
-    
+
     expect(controller.signal.aborted).toBe(true);
   });
 
   it('should not abort before timeout', () => {
     const controller = createTimeoutAbortController(100);
-    
+
     vi.advanceTimersByTime(50);
-    
+
     expect(controller.signal.aborted).toBe(false);
   });
 });

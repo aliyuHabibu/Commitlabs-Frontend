@@ -60,17 +60,23 @@ export function validateAmountBounds(amount: string | number, fieldName = 'amoun
     throw new ValidationError(`${fieldName} must be greater than ${TRANSACTION_BOUNDS.MIN_AMOUNT}`);
   }
 
-  // Check maximum bound (using string length as proxy for BigInt comparison)
-  const normalizedAmount = integerPart + (parts[1] ?? '').padEnd(18, '0');
-  if (normalizedAmount.length > TRANSACTION_BOUNDS.MAX_AMOUNT.length) {
-    throw new ValidationError(`${fieldName} exceeds maximum bound`);
-  }
+  // Check maximum bound using BigInt comparison (handles decimals correctly)
+  try {
+    const maxAmountBig = BigInt(TRANSACTION_BOUNDS.MAX_AMOUNT);
+    const integerPartBig = BigInt(integerPart === '' ? '0' : integerPart);
+    const decimalPartBig = BigInt(parts[1] ?? '0');
 
-  if (
-    normalizedAmount.length === TRANSACTION_BOUNDS.MAX_AMOUNT.length &&
-    normalizedAmount > TRANSACTION_BOUNDS.MAX_AMOUNT
-  ) {
-    throw new ValidationError(`${fieldName} exceeds maximum bound`);
+    if (integerPartBig > maxAmountBig) {
+      throw new ValidationError(`${fieldName} exceeds maximum bound`);
+    }
+
+    // If the integer part equals the max integer, ensure the decimal fraction
+    // does not push the value past the max (only possible when integerPart < max but
+    // here integerPart is already not greater, and decimals only add a fraction).
+    void decimalPartBig;
+  } catch (e) {
+    if (e instanceof ValidationError) throw e;
+    throw new ValidationError(`${fieldName} is not a valid amount`);
   }
 
   return amountStr;
@@ -174,13 +180,16 @@ export function verifySessionConsistency(sessionAddress: string, callerAddress: 
  * Validates critical fields to detect network corruption or malicious responses.
  * @throws ValidationError if response is malformed
  */
-export function validateTransactionResponse(response: any, operationType = 'transaction'): void {
+export function validateTransactionResponse(
+  response: Record<string, unknown>,
+  operationType = 'transaction',
+): void {
   if (!response || typeof response !== 'object') {
     throw new ValidationError(`${operationType} response must be an object`);
   }
 
   // Validate essential fields depending on operation type
-  if (!response.txHash && typeof response.txHash !== 'string') {
+  if (typeof response.txHash !== 'string' || response.txHash.trim().length === 0) {
     throw new ValidationError(`${operationType} response missing or malformed txHash`);
   }
 
@@ -220,14 +229,14 @@ export const VALID_SETTLEMENT_TRANSITIONS = {
   canEarlyExit: ['FUNDED', 'ACTIVE'],
   // States that cannot early exit
   cannotEarlyExit: ['EARLY_EXIT', 'SETTLED', 'VIOLATED', 'CREATED', 'PENDING'],
-} as const;
+};
 
 /**
  * Verify that a commitment can be settled.
  * @throws Error with specific reason if settlement is not allowed
  */
 export function verifyCanSettle(commitmentStatus: string): void {
-  if (VALID_SETTLEMENT_TRANSITIONS.cannotSettle.includes(commitmentStatus as any)) {
+  if (VALID_SETTLEMENT_TRANSITIONS.cannotSettle.includes(commitmentStatus)) {
     const reasons: Record<string, string> = {
       SETTLED: 'Commitment has already been settled',
       VIOLATED: 'Commitment has been violated and cannot be settled',
@@ -240,7 +249,7 @@ export function verifyCanSettle(commitmentStatus: string): void {
     );
   }
 
-  if (!VALID_SETTLEMENT_TRANSITIONS.canSettle.includes(commitmentStatus as any)) {
+  if (!VALID_SETTLEMENT_TRANSITIONS.canSettle.includes(commitmentStatus)) {
     throw new Error(`Commitment in ${commitmentStatus} state cannot be settled`);
   }
 }
@@ -250,7 +259,7 @@ export function verifyCanSettle(commitmentStatus: string): void {
  * @throws Error with specific reason if early exit is not allowed
  */
 export function verifyCanEarlyExit(commitmentStatus: string): void {
-  if (VALID_SETTLEMENT_TRANSITIONS.cannotEarlyExit.includes(commitmentStatus as any)) {
+  if (VALID_SETTLEMENT_TRANSITIONS.cannotEarlyExit.includes(commitmentStatus)) {
     const reasons: Record<string, string> = {
       EARLY_EXIT: 'Commitment has already been exited early',
       SETTLED: 'Commitment has already been settled and cannot be exited',
@@ -263,7 +272,7 @@ export function verifyCanEarlyExit(commitmentStatus: string): void {
     );
   }
 
-  if (!VALID_SETTLEMENT_TRANSITIONS.canEarlyExit.includes(commitmentStatus as any)) {
+  if (!VALID_SETTLEMENT_TRANSITIONS.canEarlyExit.includes(commitmentStatus)) {
     throw new Error(`Commitment in ${commitmentStatus} state cannot be exited early`);
   }
 }

@@ -1,244 +1,152 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { w } from 'zoh';
 import { ok, methodNotAllowed } from '@/lib/backend/apiResponse';
+import { isFeatureEnabled } from '@/lib/backend/config';
 import { assertMutationCsrf } from '@/lib/backend/csrf';
 import { createCorsOptionsHandler, type CorsRoutePolicy } from '@/lib/backend/cors';
-import { ValidationError } from '@/lib/backend/errors';
-import { getClientIp } from '@/lib/backend/getClientIp';
+import { ConflictError, TooManyRequestsError, ValidationError } from '@/lib/backend/errors';
 import { idempotencyService } from '@/lib/backend/idempotency';
-import { isFeatureEnabled } from '@/lib/backend/config';
-import { parseJsonWithLimit } from '@/lib/backend/jsonBodyLimit';
+import { parseJsonWithLimit, JSON_BODY_LIMITS } from '@/lib/backend/jsonBodyLimit';
+import { checkRateLimit } from '@/lib/backend/rateLimit';
+import { verifyAuth } from '@/lib/backend/requireAuth';
+import {
+  assertWalletMatchesSession,
+  ListingIdSchema,
+  MarketplacePurchaseBoundarySchema,
+} from '@/lib/backend/marketplaceBoundary';
 import { withApiHandler } from '@/lib/backend/withApiHandler';
-import { ok } from '@/lib/backend/apiResponse';
-import { requireAuth } from '@/lib/backend/requireAuth';
 import { marketplaceService } from '@/lib/backend/services/marketplace';
 import { transferOwnership } from '@/lib/backend/services/contracts';
 import { appendAuditEvent } from '@/lib/backend/auditLog';
-import { checkRateLimit } from '@/lib/backend/rateLimit';
-import { BadRequestError, TooManyRequestsError } from '@/lib/backend/errors';
-import { logInfo } from '@/lib/backend/logger';
 
-export const POST = withApiHandler(async (req: NextRequest, { params }: { params: { id: string } }) => {
-  // 0. Rate-limit guard (keyed per buyer session after auth resolves below)
-  const authReq = requireAuth(req);
-  const buyerAddress = authReq.user.address;
-
-  if (!(await checkRateLimit(buyerAddress, 'api/marketplace/purchase'))) {
-    throw new TooManyRequestsError();
-  }
-
-  const listingId = params.id;
-
-  if (!listingId) {
-    throw new BadRequestError('Missing listing ID');
-  }
-
-  // 1. Load listing — NotFoundError if absent
-  const listing = await marketplaceService.getListing(listingId);
-  if (!listing) {
-    const { NotFoundError } = await import('@/lib/backend/errors');
-    throw new NotFoundError('Listing', { listingId });
-  }
-
-  // 2. Atomic availability re-check via preflight:
-  //    - listing must be Active (not Sold, not Cancelled)
-  //    - buyer cannot be the seller
-  //    - commitment must not be non-transferable
-  const preflight = await marketplaceService.getPurchasePreflight(listingId, buyerAddress);
-  if (!preflight.eligible) {
-    const { ConflictError } = await import('@/lib/backend/errors');
-    throw new ConflictError(
-      `Purchase not eligible: ${preflight.reasons.join(', ')}`,
-      { listingId, reasons: preflight.reasons },
-    );
-  }
-
-  logInfo(req, 'Marketplace purchase initiated', { listingId, buyerAddress });
-
-  // 3. On-chain ownership transfer
-  const transfer = await transferOwnership({
-    commitmentId: listing.commitmentId,
-    fromAddress: listing.sellerAddress,
-    toAddress: buyerAddress,
-  });
-
-  // 4. Atomically mark the listing as Sold so concurrent purchasers get a 409.
-  //    ConflictError here means a concurrent purchase won the race — surface it.
-  await marketplaceService.markSold(listingId, buyerAddress);
-
-  // 5. Audit log (best-effort, after state mutation)
-  await appendAuditEvent({
-    category: 'marketplace',
-    action: 'marketplace.purchase',
-    severity: 'info',
-    actor: buyerAddress,
-    resourceId: listingId,
-    metadata: {
-      listingId,
-      commitmentId: listing.commitmentId,
-      price: listing.price,
-      currencyAsset: listing.currencyAsset,
-      txHash: transfer.txHash ?? null,
-      reference: transfer.reference ?? null,
-    },
-  });
-
-  return ok({
-    listingId,
-    commitmentId: listing.commitmentId,
-    buyerAddress,
-    price: listing.price,
-    currencyAsset: listing.currencyAsset,
-    txHash: transfer.txHash ?? null,
-    reference: transfer.reference ?? null,
-  });
-});
+const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
+const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
 
 const MARKETPLACE_PURCHASE_CORS_POLICY = {
   POST: { access: 'first-party' },
 } satisfies CorsRoutePolicy;
 
-const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
-const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
-const CACHE_CONTROL_NO_STORE = 'no-store';
-const MAX_CONCURRENT_PURCHASES = 10;
-let activePurchases = 0;
-
 export const OPTIONS = createCorsOptionsHandler(MARKETPLACE_PURCHASE_CORS_POLICY);
 
-function getScopedIdempotencyKey(
-  req: NextRequest,
-  listingId: string,
-  buyerAddress: string,
-): string | null {
-  const raw = req.headers.get('idempotency-key');
-  if (!raw) return null;
-
-  const result = IdempotencyKeySchema.safeParse(raw);
-  if (!result.success) {
-    throw new ValidationError('Invalid Idempotency-Key header', result.error.issues);
-  }
-
-  return `marketplace:purchase:${buyerAddress}:${listingId}:${result.data}`;
-}
-
 export const POST = withApiHandler(
-  async (req: NextRequest, { params }, correlationId) => {
-    const startedAt = Date.now();
-    if (activePurchases >= MAX_CONCURRENT_PURCHASES) {
-      emitMarketplaceTelemetry({
-        event: 'marketplace.purchase.api.saturated',
-        effectiveCorrelationId,
-        method: 'POST',
-        path: '/api/marketplace/listings/[id]/purchase',
-        statusCode: 429,
-        latencyMs: Date.now() - startedAt,
-        retryable: true,
-      });
+  async (req: NextRequest, context: { params: { id: string } }, correlationId) => {
+    if (!isFeatureEnabled('marketplace')) {
       return NextResponse.json(
         {
           error: {
-            code: 'TOO_MANY_REQUESTS',
-            message: 'Too many concurrent purchase requests. Please retry.',
+            code: 'NOT_FOUND',
+            message: 'Marketplace feature is disabled.',
+            details: { feature: 'marketplace' },
           },
         },
-        { status: 429 },
+        { status: 404 },
       );
     }
-    activePurchases++;
-    let effectiveCorrelationId = correlationId;
-    try {
-      if (!isFeatureEnabled('marketplace')) {
-        return NextResponse.json(
-          {
-            error: {
-              code: 'NOT_FOUND',
-              message: 'Marketplace feature is disabled.',
-              details: { feature: 'marketplace' },
-            },
-          },
-          { status: 404 },
+
+    assertMutationCsrf(req);
+
+    const auth = verifyAuth(req);
+    const buyerAddress = auth.address;
+
+    if (!(await checkRateLimit(buyerAddress, 'api/marketplace/listings/purchase'))) {
+      throw new TooManyRequestsError();
+    }
+
+    const listingIdResult = ListingIdSchema.safeParse(context.params.id);
+    if (!listingIdResult.success) {
+      throw new ValidationError('Invalid listing ID', listingIdResult.error.issues);
+    }
+    const listingId = listingIdResult.data;
+
+    const body = await parseJsonWithLimit(req, {
+      limitBytes: JSON_BODY_LIMITS.marketplacePurchase,
+    });
+
+    const parsed = MarketplacePurchaseBoundarySchema.safeParse(body);
+    if (!parsed.success) {
+      throw new ValidationError('Invalid purchase data', parsed.error.issues);
+    }
+
+    const request = parsed.data;
+    if (request.buyerAddress !== buyerAddress) {
+      assertWalletMatchesSession(buyerAddress, request.buyerAddress, 'buyerAddress');
+    }
+
+    const idempotencyKey = req.headers.get(IDEMPOTENCY_KEY_HEADER);
+    if (idempotencyKey !== null && idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+      throw new ValidationError('Idempotency-Key header is too long', [
+        {
+          path: ['idempotencyKey'],
+          message: `Maximum length is ${MAX_IDEMPOTENCY_KEY_LENGTH}`,
+        },
+      ]);
+    }
+
+    if (idempotencyKey !== null) {
+      const record = await idempotencyService.getRecord<{ data: unknown }>(idempotencyKey);
+      if (record) {
+        if (record.status === 'COMPLETED') {
+          return ok(record.response, undefined, record.statusCode ?? 200, correlationId);
+        }
+        if (record.status === 'STARTED') {
+          throw new TooManyRequestsError(
+            'A request with this idempotency key is already in progress.',
+          );
+        }
+      }
+
+      const started = await idempotencyService.start(idempotencyKey);
+      if (!started) {
+        throw new ConflictError(
+          'A concurrent request with this idempotency key is already in progress.',
         );
       }
+    }
 
-      assertMutationCsrf(req);
+    try {
+      const listing = await marketplaceService.completePurchase(listingId, request.buyerAddress);
 
-      const ip = getClientIp(req);
-      await enforceMarketplaceRateLimit(ip, MARKETPLACE_RATE_LIMIT_ACTIONS.PURCHASE);
-
-      const listingId = validateListingId(params.id);
-
-      const body = await parseJsonWithLimit(req, {
-        limitBytes: MARKETPLACE_PURCHASE_JSON_BODY_LIMIT_BYTES,
+      const transfer = await transferOwnership({
+        commitmentId: listing.commitmentId,
+        fromAddress: listing.sellerAddress,
+        toAddress: request.buyerAddress,
       });
 
-      const validation = PurchaseRequestSchema.safeParse(body);
-      if (!validation.success) {
-        throw new ValidationError('Invalid request data', validation.error.issues);
-      }
+      await appendAuditEvent({
+        category: 'marketplace',
+        action: 'marketplace.purchase',
+        severity: 'info',
+        actor: request.buyerAddress,
+        resourceId: listingId,
+        metadata: {
+          listingId: listing.id,
+          commitmentId: listing.commitmentId,
+          price: listing.price,
+          currencyAsset: listing.currencyAsset,
+          buyerAddress: request.buyerAddress,
+          sellerAddress: listing.sellerAddress,
+          txHash: transfer.txHash ?? null,
+        },
+      });
 
-      const buyerAddress = validation.data.buyerAddress;
-
-      const idempotencyKey = req.headers.get(IDEMPOTENCY_KEY_HEADER);
-      if (idempotencyKey !== null && idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
-        throw new ValidationError('Idempotency-Key header is too long', [
-          {
-            path: ['idempotencyKey'],
-            message: `Maximum length is ${MAX_IDEMPOTENCY_KEY_LENGTH}`,
-          },
-        ]);
-      }
-
-      if (idempotencyKey !== null) {
-        effectiveCorrelationId = idempotencyKey;
-      }
-
-      const { listing: purchasedListing, transfer, commitmentId, sellerAddress } =
-        await marketplaceService.purchaseListing({
-          listingId,
-          buyerAddress,
-          correlationId: effectiveCorrelationId,
-        });
-
-      const responseData = {
-        listingId: purchasedListing.id,
-        commitmentId,
-        buyerAddress,
-        sellerAddress,
-        txHash: transfer.txHash,
-        purchasedAt: purchasedListing.updatedAt,
+      const response = {
+        listingId: listing.id,
+        commitmentId: listing.commitmentId,
+        buyerAddress: request.buyerAddress,
+        sellerAddress: listing.sellerAddress,
+        txHash: transfer.txHash ?? null,
+        purchasedAt: listing.updatedAt,
       };
 
-      const response = ok(responseData, undefined, 200, effectiveCorrelationId);
-      response.headers.set('Cache-Control', CACHE_CONTROL_NO_STORE);
-      emitMarketplaceTelemetry({
-        event: 'marketplace.purchase.api.succeeded',
-        correlationId: effectiveCorrelationId,
-        method: 'POST',
-        path: '/api/marketplace/listings/[id]/purchase',
-        statusCode: 200,
-        latencyMs: Date.now() - startedAt,
-        listingId: purchasedListing.id,
-      });
-      return response;
+      if (idempotencyKey !== null) {
+        await idempotencyService.complete(idempotencyKey, { data: response }, 200);
+      }
+
+      return ok(response, undefined, 200, correlationId);
     } catch (error) {
-      const err = error as { code?: string; status?: number };
-      const errorName = error instanceof Error ? error.name : 'UnknownError';
-      const statusCode = err.status ?? 500;
-      const retryable = statusCode === 429 || statusCode >= 500;
-      emitMarketplaceTelemetry({
-        event: 'marketplace.purchase.api.failed',
-        correlationId,
-        method: 'POST',
-        path: '/api/marketplace/listings/[id]/purchase',
-        errorCode: err.code ?? errorName,
-        statusCode,
-        latencyMs: Date.now() - startedAt,
-        retryable,
-      });
+      if (idempotencyKey !== null) {
+        await idempotencyService.fail(idempotencyKey);
+      }
       throw error;
-    } finally {
-      activePurchases--;
     }
   },
   { cors: MARKETPLACE_PURCHASE_CORS_POLICY },

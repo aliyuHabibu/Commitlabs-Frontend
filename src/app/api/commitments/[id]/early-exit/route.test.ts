@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { POST } from './route';
 import { diagnosticsService } from '@/lib/backend/diagnostics';
+import { CsrfValidationError } from '@/lib/backend/errors';
 import { randomUUID } from 'crypto';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -35,14 +36,22 @@ vi.mock('@/lib/backend/idempotency', () => ({
 
 vi.mock('@/lib/backend/logger', () => ({
   logEarlyExit: vi.fn(),
+  logWarn: vi.fn(),
+  logError: vi.fn(),
+}));
+
+vi.mock('@/lib/backend/getClientIp', () => ({
+  getClientIp: vi.fn(() => '127.0.0.1'),
 }));
 
 import { checkRateLimit } from '@/lib/backend/rateLimit';
 import { assertMutationCsrf } from '@/lib/backend/csrf';
 import { requireAuth } from '@/lib/backend/requireAuth';
-import { earlyExitCommitmentOnChain, getCommitmentFromChain } from '@/lib/backend/services/contracts';
+import {
+  earlyExitCommitmentOnChain,
+  getCommitmentFromChain,
+} from '@/lib/backend/services/contracts';
 import { idempotencyService } from '@/lib/backend/idempotency';
-import { logEarlyExit } from '@/lib/backend/logger';
 
 const mockCheckRateLimit = vi.mocked(checkRateLimit);
 const mockAssertCsrf = vi.mocked(assertMutationCsrf);
@@ -50,7 +59,6 @@ const mockRequireAuth = vi.mocked(requireAuth);
 const mockEarlyExit = vi.mocked(earlyExitCommitmentOnChain);
 const mockGetCommitment = vi.mocked(getCommitmentFromChain);
 const mockIdempotency = vi.mocked(idempotencyService);
-const mockLogEarlyExit = vi.mocked(logEarlyExit);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -58,7 +66,7 @@ function createMockRequest(
   url: string,
   options: {
     method?: string;
-    body?: any;
+    body?: unknown;
     idempotencyKey?: string;
   } = {},
 ): NextRequest {
@@ -82,7 +90,7 @@ function createMockRequest(
 
 interface ParsedResponse {
   status: number;
-  data: any;
+  data: unknown;
 }
 
 async function parseResponse(response: Response): Promise<ParsedResponse> {
@@ -94,8 +102,8 @@ async function parseResponse(response: Response): Promise<ParsedResponse> {
 
 // ── Test Data ─────────────────────────────────────────────────────────────────
 
-const VALID_ADDRESS = `GBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
-const DIFFERENT_ADDRESS = `GBAAAAABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB`;
+const VALID_ADDRESS = `G${'A'.repeat(55)}`;
+const DIFFERENT_ADDRESS = `G${'B'.repeat(55)}`;
 const COMMITMENT_ID = 'commitment-exit-test-123';
 
 const MOCK_COMMITMENT_ACTIVE = {
@@ -121,7 +129,7 @@ describe('POST /api/commitments/[id]/early-exit - Authorization & Boundary Valid
     mockCheckRateLimit.mockResolvedValue(true);
     mockRequireAuth.mockReturnValue({
       user: { address: VALID_ADDRESS, csrfToken: 'token' },
-    } as any);
+    } as unknown as ReturnType<typeof requireAuth>);
     mockGetCommitment.mockResolvedValue(MOCK_COMMITMENT_ACTIVE);
     mockEarlyExit.mockResolvedValue({
       exitAmount: '9500',
@@ -131,13 +139,13 @@ describe('POST /api/commitments/[id]/early-exit - Authorization & Boundary Valid
       reference: 'exit-ref-123',
     });
     mockIdempotency.getRecord.mockResolvedValue(null);
-    mockIdempotency.start.mockResolvedValue(undefined);
+    mockIdempotency.start.mockResolvedValue(true);
     mockIdempotency.complete.mockResolvedValue(undefined);
     mockIdempotency.fail.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     diagnosticsService.clear();
   });
 
@@ -176,8 +184,8 @@ describe('POST /api/commitments/[id]/early-exit - Authorization & Boundary Valid
 
     const result = await parseResponse(response);
     expect(result.status).toBe(403);
-    expect(result.data.error.code).toBe('FORBIDDEN_ERROR');
-    expect(result.data.error.message).toContain('Session authentication failed');
+    expect(result.data.error.code).toBe('FORBIDDEN');
+    expect(result.data.error.message).toContain('Session address does not match caller address');
   });
 
   it('records session mismatch in diagnostics', async () => {
@@ -200,7 +208,7 @@ describe('POST /api/commitments/[id]/early-exit - Authorization & Boundary Valid
   it('rejects early-exit by non-owner (ownership verification)', async () => {
     mockRequireAuth.mockReturnValue({
       user: { address: DIFFERENT_ADDRESS, csrfToken: 'token' },
-    } as any);
+    } as unknown as ReturnType<typeof requireAuth>);
 
     const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/early-exit`, {
       body: {
@@ -214,13 +222,13 @@ describe('POST /api/commitments/[id]/early-exit - Authorization & Boundary Valid
 
     const result = await parseResponse(response);
     expect(result.status).toBe(403);
-    expect(result.data.error.message).toContain('Ownership verification failed');
+    expect(result.data.error.message).toContain('You do not own this commitment');
   });
 
   it('records ownership failure in diagnostics', async () => {
     mockRequireAuth.mockReturnValue({
       user: { address: DIFFERENT_ADDRESS, csrfToken: 'token' },
-    } as any);
+    } as unknown as ReturnType<typeof requireAuth>);
 
     const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/early-exit`, {
       body: {
@@ -294,7 +302,7 @@ describe('POST /api/commitments/[id]/early-exit - Authorization & Boundary Valid
 
     const result = await parseResponse(response);
     expect(result.status).toBe(409);
-    expect(result.data.error.message).toContain('Cannot exit commitment');
+    expect(result.data.error.message).toContain('Cannot exit a settled commitment early');
   });
 
   it('rejects early-exit of violated commitment', async () => {
@@ -495,7 +503,7 @@ describe('POST /api/commitments/[id]/early-exit - Authorization & Boundary Valid
 
   it('fails on CSRF validation failure', async () => {
     mockAssertCsrf.mockImplementation(() => {
-      throw new Error('CSRF token invalid');
+      throw new CsrfValidationError('Invalid CSRF token.');
     });
 
     const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/early-exit`, {
@@ -509,7 +517,8 @@ describe('POST /api/commitments/[id]/early-exit - Authorization & Boundary Valid
     const response = await POST(req, context, 'correlation-123');
 
     const result = await parseResponse(response);
-    expect(result.status).toBe(400);
+    expect(result.status).toBe(403);
+    expect(result.data.error.code).toBe('CSRF_INVALID');
   });
 
   // ── Rate Limit Tests ───────────────────────────────────────────────────────
@@ -529,7 +538,7 @@ describe('POST /api/commitments/[id]/early-exit - Authorization & Boundary Valid
 
     const result = await parseResponse(response);
     expect(result.status).toBe(429);
-    expect(result.data.error.code).toBe('TOO_MANY_REQUESTS_ERROR');
+    expect(result.data.error.code).toBe('TOO_MANY_REQUESTS');
   });
 
   // ── Transaction Response Validation ────────────────────────────────────────
@@ -541,7 +550,7 @@ describe('POST /api/commitments/[id]/early-exit - Authorization & Boundary Valid
       finalStatus: 'EARLY_EXIT',
       txHash: '', // Empty tx hash should fail validation
       reference: 'exit-ref-123',
-    } as any);
+    });
 
     const req = createMockRequest(`http://localhost/api/commitments/${COMMITMENT_ID}/early-exit`, {
       body: {

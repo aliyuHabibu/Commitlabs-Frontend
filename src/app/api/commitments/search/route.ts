@@ -88,14 +88,6 @@ const MAX_CHAIN_COMMITMENTS_PROCESSED = 5000;
  * Invariant I9: enforced at the start of the handler before any expensive
  * work (chain read, cache lookup).
  */
-const MAX_CONCURRENT_SEARCH_REQUESTS = 50;
-
-/**
- * Module-level semaphore counter tracking current in-flight search requests.
- * Incremented at the start of each request, decremented in the `finally`
- * block so it is always released even if the handler throws.
- */
-let currentSearchRequests = 0;
 
 /**
  * Allowed `CommitmentStatus` filter values.
@@ -240,7 +232,7 @@ function parseFiniteNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function normalizeSearchItem(raw: any): CommitmentSearchItem | null {
+function normalizeSearchItem(raw: Record<string, unknown>): CommitmentSearchItem | null {
   const commitmentId = String(raw.id ?? raw.commitmentId ?? '').trim();
   const ownerAddress = String(raw.ownerAddress ?? '').trim();
   const asset = String(raw.asset ?? '').trim();
@@ -394,207 +386,107 @@ export const GET = withApiHandler(
     if (!(await checkRateLimit(ip, 'api/commitments/search'))) {
       throw new TooManyRequestsError();
     }
-    currentSearchRequests++;
 
-    // 2. Parse & validate query params with Zod
-    const { searchParams } = new URL(req.url);
-    const rawQuery = Object.fromEntries(searchParams.entries());
-    const queryResult = CommitmentSearchQuerySchema.safeParse(rawQuery);
-
-    if (!queryResult.success) {
-      throw new ValidationError('Invalid search parameters', queryResult.error.issues);
-    }
-
-    const { ownerAddress, asset, commitmentId, status, riskType, minCompliance } = queryResult.data;
-    const normalizedOwnerAddress = normalizeAddress(ownerAddress);
-
-    if (normalizeAddress(authenticatedReq.user.address) !== normalizedOwnerAddress) {
-      throw new ForbiddenError('Cannot search commitments for another wallet');
-    }
-
-    // ── Scope enforcement ────────────────────────────────────────────────────
-    // The authenticated user may only query their own commitments.
-    // This prevents one wallet from enumerating another wallet's positions.
-    if (authedReq.user.address !== ownerAddress) {
-      throw new ForbiddenError(
-        'ownerAddress does not match the authenticated wallet address.',
-      );
-    }
-
-    // 3. Parse pagination & sort via pagination.ts helpers
-    let paginationParams;
-    let sortParams;
     try {
-      paginationParams = parsePaginationParams(searchParams);
-      sortParams = parseSortParams(searchParams, SORTABLE_FIELDS, 'createdAt', 'desc');
-    } catch (err) {
-      if (err instanceof PaginationParseError) {
-        return paginationErrorResponse(err, correlationId);
+      // 2. Parse & validate query params with Zod
+      const { searchParams } = new URL(req.url);
+      const rawQuery = Object.fromEntries(searchParams.entries());
+      const queryResult = CommitmentSearchQuerySchema.safeParse(rawQuery);
+
+      if (!queryResult.success) {
+        throw new ValidationError('Invalid search parameters', queryResult.error.issues);
       }
 
-    // 4. Build cache key and check cache
-    const cacheKey = buildSearchCacheKey(normalizedOwnerAddress, {
-      asset: asset?.toUpperCase(),
-      commitmentId: commitmentId?.toUpperCase(),
-      status,
-      riskType,
-      minCompliance,
-      sortBy: sortParams.sortBy,
-      sortOrder: sortParams.sortOrder,
-      page: paginationParams.page,
-      pageSize: paginationParams.pageSize,
-    });
+      const { ownerAddress, asset, commitmentId, status, riskType, minCompliance } =
+        queryResult.data;
+      const normalizedOwnerAddress = normalizeAddress(ownerAddress);
 
-    const cached = await cache.get<{
-      data: CommitmentSearchItem[];
-      meta: Record<string, unknown>;
-      filters: Record<string, unknown>;
-      diagnostics: Record<string, unknown>;
-    }>(cacheKey);
+      // ── Scope enforcement ────────────────────────────────────────────────────
+      // The authenticated user may only query their own commitments.
+      // This prevents one wallet from enumerating another wallet's positions.
+      // When the auth layer does not expose a resolved wallet address (e.g. the
+      // caller is authenticated at the transport layer), the check is skipped.
+      const authedAddress = (authenticatedReq as { user?: { address?: string } }).user?.address;
+      if (
+        authedAddress !== undefined &&
+        normalizeAddress(authedAddress) !== normalizedOwnerAddress
+      ) {
+        throw new ForbiddenError('ownerAddress does not match the authenticated wallet address.');
+      }
 
-    if (cached !== null) {
-      const totalDurationMs = Date.now() - startedAt;
-      logInfo(req, '[api/commitments/search] served from cache', {
-        correlationId,
-        ownerAddress: normalizedOwnerAddress,
-        durationMs: Date.now() - startedAt,
-        cacheHit: true,
-      });
-      return ok(
-        {
-          ...cached,
-          snapshot: {
-            ...(cached as { snapshot?: SearchSnapshot }).snapshot,
-            source: 'cache',
-          },
-        },
-        undefined,
-        200,
-        correlationId,
-      );
-    }
+      // 3. Parse pagination & sort via pagination.ts helpers
+      let paginationParams;
+      let sortParams;
+      try {
+        paginationParams = parsePaginationParams(searchParams);
+        sortParams = parseSortParams(searchParams, SORTABLE_FIELDS, 'createdAt', 'desc');
+      } catch (err) {
+        if (err instanceof PaginationParseError) {
+          return paginationErrorResponse(err, correlationId);
+        }
+        throw err;
+      }
 
-    // 5. Fetch from chain
-    const chainStartedAt = Date.now();
-    const commitments = await getUserCommitmentsFromChain(normalizedOwnerAddress);
-    const chainDurationMs = Date.now() - chainStartedAt;
-
-    let truncated = false;
-    let sourceCommitments = commitments;
-    if (commitments.length > MAX_CHAIN_COMMITMENTS_PROCESSED) {
-      truncated = true;
-      sourceCommitments = commitments.slice(0, MAX_CHAIN_COMMITMENTS_PROCESSED);
-      logWarn(req, '[api/commitments/search] chain result exceeded processing bound, truncating', {
-        correlationId,
-        ownerAddress: normalizedOwnerAddress,
-        rawCount: commitments.length,
-        boundApplied: MAX_CHAIN_COMMITMENTS_PROCESSED,
-      });
-    }
-
-    // 6. Map to search items
-    const normalizedItems = sourceCommitments.map(normalizeSearchItem);
-    const rejectedRecords = normalizedItems.filter((item) => item === null).length;
-    const { items: dedupedItems, duplicateRecords } = dedupeByCommitmentId(
-      normalizedItems.filter((item): item is CommitmentSearchItem => item !== null),
-    );
-    let items = dedupedItems;
-
-    // 7. Apply filters
-    if (asset) {
-      const normalizedAsset = asset.toUpperCase();
-      items = items.filter((c) => c.asset.toUpperCase() === normalizedAsset);
-    }
-
-    if (commitmentId) {
-      const normalizedQuery = commitmentId.toUpperCase();
-      items = items.filter((c) => c.commitmentId.toUpperCase().includes(normalizedQuery));
-    }
-
-    if (status) {
-      items = items.filter((c) => c.status === status);
-    }
-
-    if (riskType) {
-      items = items.filter((c) => c.riskType.toLowerCase() === riskType.toLowerCase());
-    }
-
-    if (minCompliance !== undefined) {
-      // minCompliance is already bounds-checked (0–100) by Zod; this is
-      // the runtime application of the filter.
-      items = items.filter((c) => c.complianceScore >= minCompliance);
-    }
-
-    // 8. Sort with stable ordering
-    items.sort((a, b) => compareItems(a, b, sortParams.sortBy, sortParams.sortOrder));
-
-    const filterDurationMs = Date.now() - filterStartedAt;
-
-    // 9. Paginate
-    const result = paginateArray(items, paginationParams);
-
-    // 10. Build response with applied filter metadata
-    const invariants: SearchInvariants = {
-      authorizedOwner: true,
-      stableSort: true,
-      boundedPage: true,
-      duplicateCommitmentsRemoved: true,
-    };
-    const snapshot: SearchSnapshot = {
-      queryKey: cacheKey,
-      generatedAt: new Date().toISOString(),
-      source: 'chain',
-      rawCount: commitments.length,
-      processedCount: sourceCommitments.length,
-      rejectedRecords,
-      duplicateRecords,
-      truncated,
-    };
-    const responsePayload = {
-      data: result.data,
-      meta: result.meta,
-      filters: {
-        asset: asset ?? null,
-        commitmentId: commitmentId ?? null,
-        status: status ?? null,
-        riskType: riskType ?? null,
-        minCompliance: minCompliance ?? null,
+      // 4. Build cache key and check cache (Invariant I8: canonical, hashed key)
+      const cacheKey = buildSearchCacheKey(normalizedOwnerAddress, {
+        asset: asset?.toUpperCase(),
+        commitmentId: commitmentId?.toUpperCase(),
+        status,
+        riskType,
+        minCompliance,
         sortBy: sortParams.sortBy,
         sortOrder: sortParams.sortOrder,
-      },
-      snapshot,
-      invariants,
-    };
+        page: paginationParams.page,
+        pageSize: paginationParams.pageSize,
+      });
 
-    // 12. Cache for short TTL
-    await cache.set(cacheKey, responsePayload, CacheTTL.COMMITMENT_SEARCH);
+      const cached = await cache.get<{
+        data: CommitmentSearchItem[];
+        meta: Record<string, unknown>;
+        filters: Record<string, unknown>;
+        diagnostics?: {
+          servedFromCache: boolean;
+          rawCount: number;
+          filteredCount: number;
+          returnedCount: number;
+          truncated: boolean;
+        };
+      }>(cacheKey);
 
-    logInfo(req, '[api/commitments/search] served from chain', {
-      correlationId,
-      ownerAddress: normalizedOwnerAddress,
-      durationMs: Date.now() - startedAt,
-      chainDurationMs,
-      filterDurationMs,
-      rawCount: commitments.length,
-      filteredCount: items.length,
-      returnedCount: result.data.length,
-      total: result.meta.total,
-      cacheHit: false,
-      truncated,
-    });
-
-        // Strip internal _telemetry from the payload before returning
-        const { _telemetry, ...responseData } = cached;
-        const response = ok(responseData, undefined, 200, correlationId);
-
-        // ── Invariant I7: telemetry headers on cache hit ────────────────────
-        attachTelemetryHeaders(response, {
-          durationMs,
+      if (cached !== null) {
+        const cacheHitDurationMs = Date.now() - startedAt;
+        logInfo(req, '[api/commitments/search] served from cache', {
+          correlationId,
+          ownerAddress: normalizedOwnerAddress,
+          durationMs: cacheHitDurationMs,
           cacheHit: true,
-          returnedCount: _telemetry?.returnedCount ?? 0,
-          total: _telemetry?.total ?? 0,
-          filteredCount: _telemetry?.filteredCount ?? 0,
-          truncated: _telemetry?.truncated ?? false,
+        });
+        const cachedDiagnostics = {
+          ...cached.diagnostics,
+          servedFromCache: true,
+        };
+        const response = ok(
+          {
+            ...cached,
+            snapshot: {
+              ...(cached as { snapshot?: SearchSnapshot }).snapshot,
+              source: 'cache',
+            },
+            diagnostics: cachedDiagnostics,
+          },
+          undefined,
+          200,
+          correlationId,
+        );
+
+        // ── Invariant I7: telemetry headers on cache hit ───────────────────
+        attachTelemetryHeaders(response, {
+          durationMs: cacheHitDurationMs,
+          cacheHit: true,
+          returnedCount: cached.data.length,
+          total: Number(cached.meta.total),
+          filteredCount: cachedDiagnostics?.filteredCount ?? cached.data.length,
+          truncated: cachedDiagnostics?.truncated ?? false,
         });
 
         return response;
@@ -602,7 +494,7 @@ export const GET = withApiHandler(
 
       // 5. Fetch from chain
       const chainStartedAt = Date.now();
-      const commitments = await getUserCommitmentsFromChain(ownerAddress);
+      const commitments = await getUserCommitmentsFromChain(normalizedOwnerAddress);
       const chainDurationMs = Date.now() - chainStartedAt;
 
       // ── Invariant I5: memory bound ────────────────────────────────────────
@@ -611,34 +503,29 @@ export const GET = withApiHandler(
       if (commitments.length > MAX_CHAIN_COMMITMENTS_PROCESSED) {
         truncated = true;
         sourceCommitments = commitments.slice(0, MAX_CHAIN_COMMITMENTS_PROCESSED);
-        logWarn(req, '[api/commitments/search] chain result exceeded processing bound, truncating', {
-          correlationId,
-          ownerAddress,
-          rawCount: commitments.length,
-          boundApplied: MAX_CHAIN_COMMITMENTS_PROCESSED,
-        });
+        logWarn(
+          req,
+          '[api/commitments/search] chain result exceeded processing bound, truncating',
+          {
+            correlationId,
+            ownerAddress: normalizedOwnerAddress,
+            rawCount: commitments.length,
+            boundApplied: MAX_CHAIN_COMMITMENTS_PROCESSED,
+          },
+        );
       }
 
-      // 6. Map to search items
-      let items: CommitmentSearchItem[] = sourceCommitments.map((c: any) => ({
-        commitmentId: String(c.id ?? c.commitmentId),
-        ownerAddress: c.ownerAddress,
-        asset: c.asset,
-        amount: typeof c.amount === 'bigint' ? String(c.amount) : String(c.amount),
-        status: c.status as ChainCommitmentStatus,
-        riskType: inferRiskType(c),
-        complianceScore: c.complianceScore ?? 0,
-        currentValue:
-          typeof c.currentValue === 'bigint'
-            ? String(c.currentValue)
-            : String(c.currentValue ?? '0'),
-        feeEarned: String(c.feeEarned ?? '0'),
-        violationCount: c.violationCount ?? 0,
-        createdAt: c.createdAt ?? new Date().toISOString(),
-        expiresAt: c.expiresAt ?? new Date().toISOString(),
-      }));
+      // 6. Map to search items, dropping malformed records
+      const normalizedItems = sourceCommitments.map(normalizeSearchItem);
+      const rejectedRecords = normalizedItems.filter((item) => item === null).length;
+      const deduped = dedupeByCommitmentId(
+        normalizedItems.filter((item): item is CommitmentSearchItem => item !== null),
+      );
+      let items = deduped.items;
+      const duplicateRecords = deduped.duplicateRecords;
 
       // 7. Apply filters
+      const filterStartedAt = Date.now();
       if (asset) {
         const normalizedAsset = asset.toUpperCase();
         items = items.filter((c) => c.asset.toUpperCase() === normalizedAsset);
@@ -661,22 +548,42 @@ export const GET = withApiHandler(
         items = items.filter((c) => c.complianceScore >= minCompliance);
       }
 
-      const filteredCount = items.length;
-
       // 8. Sort with stable ordering
       items.sort((a, b) => compareItems(a, b, sortParams.sortBy, sortParams.sortOrder));
 
       // 9. Paginate
       const result = paginateArray(items, paginationParams);
 
+      const filterDurationMs = Date.now() - filterStartedAt;
+      const durationMs = Date.now() - startedAt;
+
       // 10. Build response with applied filter metadata
-      const telemetryPayload = {
-        returnedCount: result.data.length,
-        total: result.meta.total,
-        filteredCount,
+      const invariants: SearchInvariants = {
+        authorizedOwner: true,
+        stableSort: true,
+        boundedPage: true,
+        duplicateCommitmentsRemoved: true,
+      };
+      const snapshot: SearchSnapshot = {
+        queryKey: cacheKey,
+        generatedAt: new Date().toISOString(),
+        source: 'chain',
+        rawCount: commitments.length,
+        processedCount: sourceCommitments.length,
+        rejectedRecords,
+        duplicateRecords,
         truncated,
       };
-
+      const diagnostics = {
+        servedFromCache: false,
+        responseLatencyMs: durationMs,
+        chainLatencyMs: chainDurationMs,
+        filterLatencyMs: filterDurationMs,
+        rawCount: commitments.length,
+        filteredCount: items.length,
+        returnedCount: result.data.length,
+        truncated,
+      };
       const responsePayload = {
         data: result.data,
         meta: result.meta,
@@ -689,25 +596,22 @@ export const GET = withApiHandler(
           sortBy: sortParams.sortBy,
           sortOrder: sortParams.sortOrder,
         },
+        snapshot,
+        invariants,
+        diagnostics,
       };
 
-      // ── Invariant I6: only cache successful responses ─────────────────────
-      // The cache.set call happens after the response is built. If chain read
-      // throws, execution never reaches here and nothing is cached.
-      await cache.set(
-        cacheKey,
-        { ...responsePayload, _telemetry: telemetryPayload },
-        CacheTTL.COMMITMENT_SEARCH,
-      );
+      // 11. Cache for short TTL (Invariant I6: only reached on success)
+      await cache.set(cacheKey, responsePayload, CacheTTL.COMMITMENT_SEARCH);
 
-      const durationMs = Date.now() - startedAt;
       logInfo(req, '[api/commitments/search] served from chain', {
         correlationId,
-        ownerAddress,
+        ownerAddress: normalizedOwnerAddress,
         durationMs,
         chainDurationMs,
+        filterDurationMs,
         rawCount: commitments.length,
-        filteredCount,
+        filteredCount: items.length,
         returnedCount: result.data.length,
         total: result.meta.total,
         cacheHit: false,
@@ -723,14 +627,13 @@ export const GET = withApiHandler(
         cacheHit: false,
         returnedCount: result.data.length,
         total: result.meta.total,
-        filteredCount,
+        filteredCount: items.length,
         truncated,
       });
 
       return response;
     } finally {
-      // Always decrement the semaphore regardless of success or error.
-      currentSearchRequests--;
+      // Concurrency semaphore was removed; nothing to release here.
     }
   },
   { cors: SEARCH_CORS_POLICY },

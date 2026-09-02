@@ -118,13 +118,13 @@ describe('CommitmentDetailHeader copy and explorer actions', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Clipboard unavailable');
   });
 
-  it('keeps the existing back and share controls working', () => {
+  it('keeps the existing back and share controls working', async () => {
     const { props } = renderHeader();
 
     fireEvent.click(screen.getByRole('button', { name: 'Go back to My Commitments' }));
     fireEvent.click(screen.getByRole('button', { name: 'Share commitment' }));
 
     expect(props.onBack).toHaveBeenCalledTimes(1);
-    expect(props.onShare).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(props.onShare).toHaveBeenCalledTimes(1));
   });
 });

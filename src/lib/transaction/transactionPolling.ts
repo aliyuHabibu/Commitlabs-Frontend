@@ -47,16 +47,8 @@ export interface PollingOptions<T> {
  * Bounded polling implementation
  * Enforces limits on duration, attempts, and intervals
  */
-export async function pollWithBounds<T>(
-  options: PollingOptions<T>,
-): Promise<PollingResult<T>> {
-  const {
-    pollFn,
-    shouldStop,
-    config: userConfig,
-    signal,
-    transactionId,
-  } = options;
+export async function pollWithBounds<T>(options: PollingOptions<T>): Promise<PollingResult<T>> {
+  const { pollFn, shouldStop, config: userConfig, signal, transactionId } = options;
 
   const config: PollingConfig = {
     ...DEFAULT_POLLING_CONFIG,
@@ -189,7 +181,7 @@ export async function pollWithBounds<T>(
 
     // Wait for interval before next poll (unless this was the last attempt)
     if (attempts < config.maxAttempts) {
-      const nextPollTime = startTime + (attempts * config.intervalMs);
+      const nextPollTime = startTime + attempts * config.intervalMs;
       const now = Date.now();
       const delay = Math.max(0, nextPollTime - now);
 
@@ -211,10 +203,14 @@ export async function pollWithBounds<T>(
 
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(resolve, delay);
-        signal?.addEventListener('abort', () => {
-          clearTimeout(timeout);
-          resolve();
-        }, { once: true });
+        signal?.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timeout);
+            resolve();
+          },
+          { once: true },
+        );
       });
     }
   }
@@ -246,10 +242,7 @@ export function createTimeoutAbortController(timeoutMs: number): AbortController
 /**
  * Debounce function to prevent rapid repeated polling
  */
-export function debouncePolling<T>(
-  pollFn: () => Promise<T>,
-  delayMs: number,
-): () => Promise<T> {
+export function debouncePolling<T>(pollFn: () => Promise<T>, delayMs: number): () => Promise<T> {
   let lastCallTime = 0;
   let pendingPromise: Promise<T> | null = null;
 
@@ -285,6 +278,12 @@ export function throttlePolling<T>(
 
   return async (): Promise<T> => {
     const now = Date.now();
+
+    // Coalesce to an in-flight call so rapid invocations share a single request.
+    if (pendingPromise) {
+      return pendingPromise;
+    }
+
     const timeSinceLastCall = now - lastCallTime;
 
     if (timeSinceLastCall < minIntervalMs) {

@@ -54,9 +54,6 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 /** Minimum ms between two successive fetch calls (dedup window). */
 const DEDUP_WINDOW_MS = 2_000;
 
-/** Maximum age (ms) of a poll result before we consider it stale for UI hinting. */
-const STALE_THRESHOLD_MS = 60_000;
-
 /** Terminal statuses that should use slower polling. */
 const TERMINAL_STATUSES = new Set(['Settled', 'Early Exit', 'Violated']);
 
@@ -191,6 +188,7 @@ export function CommitmentStatusProvider({
       if (!mountedRef.current) return;
 
       setStatus(json);
+      statusRef.current = json;
       setError(null);
       setConsecutiveFailures(0);
       attemptRef.current = 0;

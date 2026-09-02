@@ -71,7 +71,15 @@ export class TransactionStateMachine {
     if (newState === this.state) {
       return {
         valid: false,
-        reason: `Cannot transition from ${this.state} to itself`,
+        reason: `cannot transition from ${this.state} to itself`,
+      };
+    }
+
+    // Invariant: Terminal states cannot transition (except reset to idle)
+    if (TERMINAL_STATES.includes(this.state) && newState !== 'idle') {
+      return {
+        valid: false,
+        reason: `Cannot transition from terminal state ${this.state}`,
       };
     }
 
@@ -81,14 +89,6 @@ export class TransactionStateMachine {
       return {
         valid: false,
         reason: `Invalid transition from ${this.state} to ${newState}. Allowed: ${allowedTransitions.join(', ')}`,
-      };
-    }
-
-    // Invariant: Terminal states cannot transition
-    if (TERMINAL_STATES.includes(this.state)) {
-      return {
-        valid: false,
-        reason: `Cannot transition from terminal state ${this.state}`,
       };
     }
 
@@ -222,10 +222,9 @@ export function validateTransactionMetadata(
   }
 
   // Invariant: Timestamps must be valid ISO 8601
-  try {
-    new Date(metadata.createdAt);
-    new Date(metadata.updatedAt);
-  } catch {
+  const createdAt = new Date(metadata.createdAt);
+  const updatedAt = new Date(metadata.updatedAt);
+  if (Number.isNaN(createdAt.getTime()) || Number.isNaN(updatedAt.getTime())) {
     return {
       type: TransactionErrorType.VALIDATION_ERROR,
       message: 'Invalid timestamp format',
@@ -234,7 +233,7 @@ export function validateTransactionMetadata(
   }
 
   // Invariant: Updated timestamp must not be before created timestamp
-  if (new Date(metadata.updatedAt) < new Date(metadata.createdAt)) {
+  if (updatedAt < createdAt) {
     return {
       type: TransactionErrorType.VALIDATION_ERROR,
       message: 'Updated timestamp cannot be before created timestamp',

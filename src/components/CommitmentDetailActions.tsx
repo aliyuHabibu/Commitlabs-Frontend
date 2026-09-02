@@ -8,13 +8,7 @@ import { SettlementEligibilityChecklist } from '@/components/settlement/Settleme
 
 /** Canonical commitment statuses that gate which actions are available. */
 export type CommitmentStatusType =
-  | 'Active'
-  | 'Disputed'
-  | 'Early Exit'
-  | 'Settled'
-  | 'Violated'
-  | 'Created'
-  | 'Funded';
+  'Active' | 'Disputed' | 'Early Exit' | 'Settled' | 'Violated' | 'Created' | 'Funded';
 
 interface ActionTelemetryEvent {
   action: string;
@@ -86,19 +80,16 @@ const ACTION_LOCK_MS = 800;
 function useActionLock() {
   const lockRef = useRef(false);
 
-  const withLock = useCallback(
-    <T extends (...args: unknown[]) => unknown>(fn: T): T => {
-      return ((...args: unknown[]) => {
-        if (lockRef.current) return;
-        lockRef.current = true;
-        setTimeout(() => {
-          lockRef.current = false;
-        }, ACTION_LOCK_MS);
-        return fn(...args);
-      }) as T;
-    },
-    [],
-  );
+  const withLock = useCallback(<T extends (...args: unknown[]) => unknown>(fn: T): T => {
+    return ((...args: unknown[]) => {
+      if (lockRef.current) return;
+      lockRef.current = true;
+      setTimeout(() => {
+        lockRef.current = false;
+      }, ACTION_LOCK_MS);
+      return fn(...args);
+    }) as T;
+  }, []);
 
   return withLock;
 }
@@ -169,19 +160,32 @@ export function CommitmentDetailActions({
   }, [canEarlyExit, commitmentId, onEarlyExit]);
 
   const handleViewAttestations = useCallback(() => {
-    emitActionTelemetry({ action: 'view_attestations', ...(commitmentId !== undefined ? { commitmentId } : {}), allowed: true });
+    emitActionTelemetry({
+      action: 'view_attestations',
+      ...(commitmentId !== undefined ? { commitmentId } : {}),
+      allowed: true,
+    });
     onViewAttestations();
   }, [commitmentId, onViewAttestations]);
 
   const handleExportData = useCallback(() => {
-    emitActionTelemetry({ action: 'export_data', ...(commitmentId !== undefined ? { commitmentId } : {}), allowed: true });
+    emitActionTelemetry({
+      action: 'export_data',
+      ...(commitmentId !== undefined ? { commitmentId } : {}),
+      allowed: true,
+    });
     onExportData();
   }, [commitmentId, onExportData]);
 
   const handleReportIssue = useCallback(() => {
-    emitActionTelemetry({ action: 'report_issue', ...(commitmentId !== undefined ? { commitmentId } : {}), allowed: true });
+    if (reportIssueDisabledReason) return;
+    emitActionTelemetry({
+      action: 'report_issue',
+      ...(commitmentId !== undefined ? { commitmentId } : {}),
+      allowed: true,
+    });
     onReportIssue();
-  }, [commitmentId, onReportIssue]);
+  }, [commitmentId, onReportIssue, reportIssueDisabledReason]);
 
   const handleDuplicate = useCallback(() => {
     if (!commitmentId || !onDuplicate) return;
@@ -363,6 +367,7 @@ export function CommitmentDetailActions({
           {/* Report an Issue */}
           <button
             onClick={handleReportIssue}
+            disabled={!!reportIssueDisabledReason}
             className={`
               w-full rounded-2xl px-6 py-4
               bg-[#161616] border border-[#232323]
@@ -377,6 +382,7 @@ export function CommitmentDetailActions({
             `}
             aria-label="Report an Issue"
             aria-disabled={!!reportIssueDisabledReason}
+            title={reportIssueDisabledReason}
           >
             <FiAlertCircle className="text-white/70" size={22} />
 

@@ -38,11 +38,23 @@ export function reduce(state: DraftState | undefined, event: DraftEvent): DraftS
   switch (event.type) {
     case 'START':
       if (s.status === 'submitting' || s.status === 'confirmed') return s;
-      return ok({ status: 'draft', draftId: event.draftId ?? s.draftId, step: event.step, data: event.data, id: null, error: null });
+      return ok({
+        status: 'draft',
+        draftId: event.draftId ?? s.draftId,
+        step: event.step,
+        data: event.data,
+        id: null,
+        error: null,
+      });
 
     case 'EDIT':
       if (s.status !== 'draft' && s.status !== 'cancelled') return s;
-      return ok({ status: 'draft', draftId: event.draftId ?? s.draftId, step: event.step ?? s.step, data: event.data !== undefined ? event.data : s.data });
+      return ok({
+        status: 'draft',
+        draftId: event.draftId ?? s.draftId,
+        step: event.step ?? s.step,
+        data: event.data !== undefined ? event.data : s.data,
+      });
 
     case 'SUBMIT':
       if ((s.status === 'draft' || s.status === 'failed') && !s.id && event.id) {
@@ -74,13 +86,20 @@ export function reduce(state: DraftState | undefined, event: DraftEvent): DraftS
 
     case 'RESUME':
       if (s.status === 'submitting' || s.status === 'confirmed') return s;
-      return ok({ status: 'draft', draftId: event.draftId, step: event.step, data: event.data, id: null, error: null });
+      return ok({
+        status: 'draft',
+        draftId: event.draftId,
+        step: event.step,
+        data: event.data,
+        id: null,
+        error: null,
+      });
 
-    case 'RECOVER:':
+    case 'RECOVER':
       if (s.status === 'submitting' || s.status === 'confirmed') return s;
       const from = event.from;
       if (from && typeof from === 'object') {
-        const recoveredStatus = from.status === 'submitting' ? 'failed' : (from.status || 'draft');
+        const recoveredStatus = from.status === 'submitting' ? 'failed' : from.status || 'draft';
         const recoveredError = from.status === 'submitting' ? 'recovered' : from.error;
         return ok({
           status: recoveredStatus,

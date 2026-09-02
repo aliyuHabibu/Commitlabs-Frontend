@@ -20,6 +20,7 @@ export const JSON_BODY_LIMITS = {
   commitmentsCreate: 8 * 1024, // 8 KiB — small set of fields + optional metadata
   attestationsCreate: 16 * 1024, // 16 KiB — data object may carry attestation details
   marketplaceListingsCreate: 4 * 1024, // 4 KiB — a handful of short fields
+  marketplacePurchase: 4 * 1024, // 4 KiB — buyerAddress + networkPassphrase
   authVerify: 4 * 1024, // 4 KiB — address + signature + short message
 } as const;
 

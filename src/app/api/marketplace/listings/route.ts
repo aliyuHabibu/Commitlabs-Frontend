@@ -3,25 +3,28 @@ import { ok, methodNotAllowed } from '@/lib/backend/apiResponse';
 import { isFeatureEnabled } from '@/lib/backend/config';
 import { assertMutationCsrf } from '@/lib/backend/csrf';
 import { createCorsOptionsHandler, type CorsRoutePolicy } from '@/lib/backend/cors';
-import { ValidationError } from '@/lib/backend/errors';
+import { ConflictError, TooManyRequestsError, ValidationError } from '@/lib/backend/errors';
 import { getClientIp } from '@/lib/backend/getClientIp';
 import { idempotencyService } from '@/lib/backend/idempotency';
 import { parseJsonWithLimit, JSON_BODY_LIMITS } from '@/lib/backend/jsonBodyLimit';
 import { checkRateLimit } from '@/lib/backend/rateLimit';
-import { requireAuth } from '@/lib/backend/requireAuth';
+import { verifyAuth } from '@/lib/backend/requireAuth';
 import {
   getMarketplaceSortKeys,
   isMarketplaceSortBy,
+  listMarketplaceListings,
+  marketplaceService,
   type MarketplaceCommitmentType,
   type MarketplacePublicListing,
 } from '@/lib/backend/services/marketplace';
+import {
+  assertWalletMatchesSession,
+  MarketplaceCreateListingBoundarySchema,
+} from '@/lib/backend/marketplaceBoundary';
 import { withApiHandler } from '@/lib/backend/withApiHandler';
+import { MAX_PAGE_SIZE } from '@/lib/backend/pagination';
 import type { CreateListingRequest, CreateListingResponse } from '@/types/marketplace';
-import { MARKETPLACE_RATE_LIMIT_ACTIONS } from '@/lib/marketplace/constants';
-import { listMarketplaceListings, marketplaceService } from '@/lib/marketplace';
-import { enforceMarketplaceRateLimit } from '@/lib/marketplace/rate-limit';
-import { emitMarketplaceTelemetry } from '@/lib/marketplace/telemetry';
-import { parseBoundedPagination, parseOptionalNumber } from '@/lib/marketplace/validation';
+import { parseOptionalNumber } from '@/lib/marketplace/validation';
 
 const COMMITMENT_TYPES: readonly MarketplaceCommitmentType[] = [
   'Safe',
@@ -30,11 +33,13 @@ const COMMITMENT_TYPES: readonly MarketplaceCommitmentType[] = [
 ] as const;
 
 const MAX_LISTINGS_PAGE = 1000;
-const MAX_LISTINGS_PAGE_SIZE = 100;
 const MAX_COMPLIANCE = 100;
 const MIN_COMPLIANCE = 0;
 const MAX_LOSS_PERCENT = 100;
 const MIN_LOSS_PERCENT = 0;
+
+const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
+const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
 
 interface ParseResult {
   type?: MarketplaceCommitmentType;
@@ -43,8 +48,8 @@ interface ParseResult {
   minAmount?: number;
   maxAmount?: number;
   sortBy?: string;
-  page?: number;
-  pageSize?: number;
+  page: number;
+  pageSize: number;
 }
 
 const MARKETPLACE_LISTINGS_CORS_POLICY = {
@@ -65,16 +70,6 @@ function toMarketplaceCard(listing: MarketplacePublicListing) {
     maxLoss: `${listing.maxLoss}%`,
     price: `$${listing.price.toLocaleString()}`,
   };
-}
-
-function parseNumber(searchParams: URLSearchParams, key: string): number | undefined {
-  const raw = searchParams.get(key);
-  if (raw === null) return undefined;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || Number.isNaN(parsed)) {
-    throw new ValidationError(`Invalid '${key}' query param. Expected a number.`);
-  }
-  return parsed;
 }
 
 function parseInteger(
@@ -142,10 +137,7 @@ function parseQuery(searchParams: URLSearchParams): ParseResult {
       `'minCompliance' must be between ${MIN_COMPLIANCE} and ${MAX_COMPLIANCE}.`,
     );
   }
-  if (
-    maxLoss !== undefined &&
-    (maxLoss < MIN_LOSS_PERCENT || maxLoss > MAX_LOSS_PERCENT)
-  ) {
+  if (maxLoss !== undefined && (maxLoss < MIN_LOSS_PERCENT || maxLoss > MAX_LOSS_PERCENT)) {
     throw new ValidationError(
       `'maxLoss' must be between ${MIN_LOSS_PERCENT} and ${MAX_LOSS_PERCENT}.`,
     );
@@ -158,17 +150,6 @@ function parseQuery(searchParams: URLSearchParams): ParseResult {
     );
   }
 
-  const { page, pageSize } = parseBoundedPagination(searchParams);
-  if (page !== undefined && page < 1) {
-    throw new ValidationError("'page' must be a positive integer.");
-  }
-  if (page !== undefined && page > MAX_LISTINGS_PAGE) {
-    throw new ValidationError(`'page' exceeds maximum of ${MAX_LISTINGS_PAGE}.`);
-  }
-  if (pageSize !== undefined && pageSize > MAX_LISTINGS_PAGE_SIZE) {
-    throw new ValidationError(`'pageSize' exceeds maximum of ${MAX_LISTINGS_PAGE_SIZE}.`);
-  }
-
   return {
     type: parseType(searchParams),
     minCompliance,
@@ -176,92 +157,151 @@ function parseQuery(searchParams: URLSearchParams): ParseResult {
     minAmount,
     maxAmount,
     sortBy,
-    page: parseInteger(searchParams, 'page', 1),
+    page: parseInteger(searchParams, 'page', 1, MAX_LISTINGS_PAGE),
     pageSize: parseInteger(searchParams, 'pageSize', 10, MAX_PAGE_SIZE),
   };
-
-  if (type !== undefined) result.type = type;
-  if (minCompliance !== undefined) result.minCompliance = minCompliance;
-  if (maxLoss !== undefined) result.maxLoss = maxLoss;
-  if (minAmount !== undefined) result.minAmount = minAmount;
-  if (maxAmount !== undefined) result.maxAmount = maxAmount;
-  if (sortBy !== undefined) result.sortBy = sortBy;
-
-  return result;
 }
 
 export const GET = withApiHandler(
   async (req: NextRequest, _context, correlationId) => {
-    const startedAt = Date.now();
-    try {
-      if (!isFeatureEnabled('marketplace')) {
-        return NextResponse.json(
-          {
-            error: {
-              code: 'NOT_FOUND',
-              message: 'Marketplace feature is disabled.',
-              details: { feature: 'marketplace' },
-            },
+    if (!isFeatureEnabled('marketplace')) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'NOT_FOUND',
+            message: 'Marketplace feature is disabled.',
+            details: { feature: 'marketplace' },
           },
-          { status: 404 },
-        );
-      }
+        },
+        { status: 404 },
+      );
+    }
 
-      const ip = getClientIp(req);
-      await enforceMarketplaceRateLimit(ip, MARKETPLACE_RATE_LIMIT_ACTIONS.LIST);
+    const ip = getClientIp(req);
+    if (!(await checkRateLimit(ip, 'api/marketplace/listings'))) {
+      throw new TooManyRequestsError();
+    }
 
-      const { searchParams } = new URL(req.url);
-      const filters = parseQuery(searchParams);
-      const listings = await listMarketplaceListings(filters);
+    const { searchParams } = new URL(req.url);
+    const filters = parseQuery(searchParams);
+    const listings = await listMarketplaceListings(filters);
 
-export const POST = withApiHandler(async (req: NextRequest, _context, correlationId) => {
-  // Authentication required for listing creation
-  const authReq = requireAuth(req);
-  const sellerAddress = authReq.user.address;
-
-  // Rate-limit write operations per authenticated user
-  if (!(await checkRateLimit(sellerAddress, 'api/marketplace/listings/create'))) {
-    throw new TooManyRequestsError();
-  }
-
-  const body = await parseJsonWithLimit(req, {
-    limitBytes: JSON_BODY_LIMITS.marketplaceListingsCreate,
-  });
+    const response = {
+      listings,
+      total: listings.length,
+      cards: listings.map(toMarketplaceCard),
+    };
+    return ok(response, undefined, 200, correlationId);
+  },
+  { cors: MARKETPLACE_LISTINGS_CORS_POLICY },
+);
 
 export const POST = withApiHandler(
   async (req: NextRequest, _context, correlationId) => {
-    const startedAt = Date.now();
-    try {
-      if (!isFeatureEnabled('marketplace')) {
-        return NextResponse.json(
-          {
-            error: {
-              code: 'NOT_FOUND',
-              message: 'Marketplace feature is disabled.',
-              details: { feature: 'marketplace' },
-            },
+    if (!isFeatureEnabled('marketplace')) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'NOT_FOUND',
+            message: 'Marketplace feature is disabled.',
+            details: { feature: 'marketplace' },
           },
-          { status: 404 },
-        );
+        },
+        { status: 404 },
+      );
+    }
+
+    assertMutationCsrf(req);
+
+    const auth = verifyAuth(req);
+    const sellerAddress = auth.address;
+
+    if (!(await checkRateLimit(sellerAddress, 'api/marketplace/listings/create'))) {
+      throw new TooManyRequestsError();
+    }
+
+    const body = await parseJsonWithLimit(req, {
+      limitBytes: JSON_BODY_LIMITS.marketplaceListingsCreate,
+    });
+
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      !Array.isArray(body) &&
+      !('sellerAddress' in body)
+    ) {
+      (body as Record<string, unknown>).sellerAddress = sellerAddress;
+    }
+
+    const parsed = MarketplaceCreateListingBoundarySchema.safeParse(body);
+    if (!parsed.success) {
+      throw new ValidationError('Invalid listing data', parsed.error.issues);
+    }
+
+    const request = parsed.data;
+    if (request.sellerAddress && request.sellerAddress !== sellerAddress) {
+      assertWalletMatchesSession(sellerAddress, request.sellerAddress, 'sellerAddress');
+    }
+
+    const createPayload = {
+      commitmentId: request.commitmentId,
+      price: request.price,
+      currencyAsset: request.currencyAsset,
+      sellerAddress: request.sellerAddress ?? sellerAddress,
+    };
+
+    const idempotencyKey = req.headers.get(IDEMPOTENCY_KEY_HEADER);
+    if (idempotencyKey !== null && idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+      throw new ValidationError('Idempotency-Key header is too long', [
+        {
+          path: ['idempotencyKey'],
+          message: `Maximum length is ${MAX_IDEMPOTENCY_KEY_LENGTH}`,
+        },
+      ]);
+    }
+
+    if (idempotencyKey !== null) {
+      const record = await idempotencyService.getRecord<{
+        listing: CreateListingResponse['listing'];
+      }>(idempotencyKey);
+      if (record) {
+        if (record.status === 'COMPLETED') {
+          return ok(record.response, undefined, record.statusCode ?? 201, correlationId);
+        }
+        if (record.status === 'STARTED') {
+          throw new TooManyRequestsError(
+            'A request with this idempotency key is already in progress.',
+          );
+        }
       }
 
-  const request = body as CreateListingRequest;
+      const started = await idempotencyService.start(idempotencyKey);
+      if (!started) {
+        throw new ConflictError(
+          'A concurrent request with this idempotency key is already in progress.',
+        );
+      }
+    }
 
-  // Enforce that the authenticated caller is the declared seller
-  if (request.sellerAddress && request.sellerAddress !== sellerAddress) {
-    throw new ValidationError('sellerAddress must match the authenticated caller.');
-  }
+    let listing: CreateListingResponse['listing'];
+    try {
+      listing = await marketplaceService.createListing(createPayload as CreateListingRequest);
+    } catch (error) {
+      if (idempotencyKey !== null) {
+        await idempotencyService.fail(idempotencyKey);
+      }
+      throw error;
+    }
 
-  // Fill in sellerAddress from session when not provided in body
-  const enrichedRequest: CreateListingRequest = {
-    ...request,
-    sellerAddress: request.sellerAddress ?? sellerAddress,
-  };
+    const response: CreateListingResponse = { listing };
+    if (idempotencyKey !== null) {
+      await idempotencyService.complete(idempotencyKey, response, 201);
+    }
 
-  const listing = await marketplaceService.createListing(enrichedRequest);
-  const response: CreateListingResponse = { listing };
-  return ok(response, undefined, 201, correlationId);
-}, { cors: MARKETPLACE_LISTINGS_CORS_POLICY });
+    return ok(response, undefined, 201, correlationId);
+  },
+  { cors: MARKETPLACE_LISTINGS_CORS_POLICY },
+);
 
 const _405 = methodNotAllowed(['GET', 'POST']);
 export { _405 as PUT, _405 as PATCH, _405 as DELETE };

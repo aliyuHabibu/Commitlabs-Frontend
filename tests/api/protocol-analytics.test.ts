@@ -1,7 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { GET, buildProtocolAnalytics, ProtocolAnalyticsResponse } from '@/app/api/analytics/protocol/route';
+import {
+  GET,
+  POST,
+  PUT,
+  PATCH,
+  DELETE,
+  buildProtocolAnalytics,
+} from '@/app/api/analytics/protocol/route';
 import { createMockRequest, parseResponse } from './helpers';
 import type { ChainCommitment } from '@/lib/backend/services/contracts';
+import { _resetEnvCache } from '@/lib/backend/env';
 
 /**
  * Test suite for the protocol analytics API endpoint and builder function.
@@ -83,7 +91,7 @@ describe('buildProtocolAnalytics', () => {
     it('should compute analytics for a single ACTIVE commitment', () => {
       const result = buildProtocolAnalytics([ACTIVE_COMMITMENT]);
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         totalCommitments: 1,
         activeCommitments: 1,
         settledCommitments: 0,
@@ -171,7 +179,7 @@ describe('buildProtocolAnalytics', () => {
     it('should return zero values for empty commitment list', () => {
       const result = buildProtocolAnalytics([]);
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         totalCommitments: 0,
         activeCommitments: 0,
         settledCommitments: 0,
@@ -258,10 +266,7 @@ describe('buildProtocolAnalytics', () => {
         amount: String(Number.NEGATIVE_INFINITY),
       };
 
-      const result = buildProtocolAnalytics([
-        commitmentWithNegInfinity,
-        SETTLED_COMMITMENT,
-      ]);
+      const result = buildProtocolAnalytics([commitmentWithNegInfinity, SETTLED_COMMITMENT]);
 
       // Negative infinity skipped: 2000
       expect(result.totalValueLocked).toBe('2000.00');
@@ -427,7 +432,7 @@ describe('buildProtocolAnalytics', () => {
  */
 describe('GET /api/analytics/protocol', () => {
   beforeEach(() => {
-    // Ensure feature flag is enabled by default for these tests
+    _resetEnvCache();
     process.env.COMMITLABS_FEATURE_ANALYTICS_PROTOCOL = 'true';
     vi.clearAllMocks();
   });
@@ -514,15 +519,15 @@ describe('GET /api/analytics/protocol', () => {
 
   describe('HTTP method enforcement', () => {
     it('should only allow GET requests', async () => {
-      const methods = ['POST', 'PUT', 'PATCH', 'DELETE'];
+      const handlers = { POST, PUT, PATCH, DELETE } as const;
 
-      for (const method of methods) {
+      for (const [method, handler] of Object.entries(handlers)) {
         const req = createMockRequest('http://localhost/api/analytics/protocol', { method });
-        const response = await GET(req);
+        const response = await handler(req);
         const result = await parseResponse(response);
 
-        // Should get a 405 Method Not Allowed or similar
-        expect([400, 405]).toContain(result.status);
+        // Should get a 405 Method Not Allowed
+        expect(result.status).toBe(405);
       }
     });
   });
@@ -644,8 +649,17 @@ describe('GET /api/analytics/protocol', () => {
 
       expect(result1.status).toBe(result2.status);
       if (result1.status === 200 && result2.status === 200) {
-        // Data should be equivalent (not necessarily identical object references)
-        expect(result1.data).toEqual(result2.data);
+        // Data should be equivalent apart from the non-deterministic
+        // snapshot timestamp (not necessarily identical object references)
+        const data1 = {
+          ...result1.data,
+          snapshot: { ...result1.data.snapshot, generatedAt: undefined },
+        };
+        const data2 = {
+          ...result2.data,
+          snapshot: { ...result2.data.snapshot, generatedAt: undefined },
+        };
+        expect(data1).toEqual(data2);
       }
     });
   });

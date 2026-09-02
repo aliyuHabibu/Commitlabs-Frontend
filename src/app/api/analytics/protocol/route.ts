@@ -41,6 +41,10 @@ const ANALYTICS_PROTOCOL_CORS_POLICY = {
 
 export const OPTIONS = createCorsOptionsHandler(ANALYTICS_PROTOCOL_CORS_POLICY);
 
+function formatCurrencyMetric(value: number): string {
+  return value.toFixed(2);
+}
+
 function parseNumeric(value: string | number | undefined | null): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -151,10 +155,8 @@ export function buildProtocolAnalytics(
     activeCommitments,
     settledCommitments,
     violatedCommitments,
-    totalValueLocked: formatCurrencyMetric(validCommitments.reduce((acc, c) => acc + c.amount, 0)),
-    totalFeesEarned: formatCurrencyMetric(
-      validCommitments.reduce((acc, c) => acc + c.feeEarned, 0),
-    ),
+    totalValueLocked: formatCurrencyMetric(totalValueLocked),
+    totalFeesEarned: formatCurrencyMetric(totalFeesEarned),
     averageComplianceScore: Number(averageComplianceScore.toFixed(2)),
     totalViolations,
     uniqueOwners: ownerSet.size,

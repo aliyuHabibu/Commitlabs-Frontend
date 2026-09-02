@@ -1,5 +1,5 @@
 import { logError, logInfo } from '../logger';
-import { ConflictError, InternalError, NotFoundError, ValidationError } from '../errors';
+import { ApiError, ConflictError, InternalError, NotFoundError, ValidationError } from '../errors';
 import { getStorageAdapter } from '../storage';
 import type { MarketplaceListing, CreateListingRequest } from '@/lib/types/domain';
 import { cache } from '@/lib/backend/cache/factory';
@@ -8,13 +8,11 @@ import {
   CacheTTL,
   CACHE_PREFIXES,
   envelopeCanServeStale,
-  envelopeFreshnessAgeSeconds,
   envelopeIsExpired,
   isStatsEnvelope,
   makeStatsEnvelope,
   STATS_EMPTY_PAYLOAD,
   type MarketplaceStatsEnvelope,
-  type StatsFreshnessState,
 } from '@/lib/backend/cache/index';
 import { isFeatureEnabled } from '../config';
 
@@ -69,7 +67,7 @@ export interface PurchasePreflightResponse {
   reasons: string[];
 }
 
-const MARKETPLACE_LISTING_COUNTER_KEY = "marketplace:listings:counter";
+const MARKETPLACE_LISTING_COUNTER_KEY = 'marketplace:listings:counter';
 
 const MOCK_LISTINGS: MarketplacePublicListing[] = [
   {
@@ -169,6 +167,12 @@ function getActiveListingStorageKey(commitmentId: string): string {
 }
 
 function normalizeStorageError(error: unknown): InternalError {
+  // Domain/validation errors raised by the service (Conflict, Validation,
+  // NotFound, Forbidden, Unauthorized) must propagate unchanged — they are not
+  // storage failures. Only wrap genuine infrastructure errors.
+  if (error instanceof ApiError) {
+    throw error;
+  }
   const normalized = error instanceof Error ? error : new Error(String(error));
   logError(undefined, '[MarketplaceService] Storage operation failed', normalized);
 
@@ -330,7 +334,11 @@ export function selectFeaturedMarketplaceListings(
 }
 
 class MarketplaceService {
-  private readonly storage = getStorageAdapter();
+  private get storage(): ReturnType<typeof getStorageAdapter> {
+    // Resolve lazily so tests can swap the adapter (configureStorageAdapterForTests)
+    // without reconstructing this singleton.
+    return getStorageAdapter();
+  }
 
   private async loadListing(listingId: string): Promise<MarketplaceListing | null> {
     try {
@@ -353,7 +361,10 @@ class MarketplaceService {
       if (activeListingId) {
         const existingListing = await this.loadListing(activeListingId);
 
-        if (existingListing?.status === 'Active') {
+        // A commitment may only have one marketplace listing at a time. The
+        // active-listing pointer is never removed on sold/cancel, so any
+        // existing pointer blocks re-listing until it is cleared.
+        if (existingListing) {
           throw new ConflictError('Commitment is already listed on the marketplace.', {
             commitmentId: request.commitmentId,
             existingListingId: existingListing.id,
@@ -763,8 +774,8 @@ class MarketplaceService {
     }
 
     // Non-transferable commitments cannot be purchased regardless of listing state
-    if (listing.commitmentId.includes("non-transferable")) {
-      reasons.push("non_transferable");
+    if (listing.commitmentId.includes('non-transferable')) {
+      reasons.push('non_transferable');
     }
 
     return {
@@ -783,7 +794,7 @@ class MarketplaceService {
    * @throws NotFoundError when the listing does not exist.
    */
   async markSold(listingId: string, buyerAddress: string): Promise<void> {
-    logInfo(undefined, "[MarketplaceService] Marking listing as sold", {
+    logInfo(undefined, '[MarketplaceService] Marking listing as sold', {
       listingId,
       buyerAddress,
     });
@@ -791,19 +802,19 @@ class MarketplaceService {
     const listing = await this.loadListing(listingId);
 
     if (!listing) {
-      throw new NotFoundError("Listing", { listingId });
+      throw new NotFoundError('Listing', { listingId });
     }
 
-    if (listing.status === "Sold") {
+    if (listing.status === 'Sold') {
       // Idempotent: treat an already-sold listing as a duplicate purchase attempt
-      throw new ConflictError("Listing has already been sold.", {
+      throw new ConflictError('Listing has already been sold.', {
         listingId,
         currentStatus: listing.status,
       });
     }
 
-    if (listing.status !== "Active") {
-      throw new ConflictError("Only active listings can be purchased.", {
+    if (listing.status !== 'Active') {
+      throw new ConflictError('Only active listings can be purchased.', {
         listingId,
         currentStatus: listing.status,
       });
@@ -812,25 +823,25 @@ class MarketplaceService {
     try {
       const soldListing: MarketplaceListing = {
         ...listing,
-        status: "Sold",
+        status: 'Sold',
         updatedAt: new Date().toISOString(),
       };
 
       await this.storage.set(getListingStorageKey(listingId), soldListing);
 
       // Invalidate all cached listing queries — the set has changed.
-      await cache.invalidate(LISTINGS_PREFIX);
-      logInfo(undefined, "[cache] invalidated marketplace-listings after sold", {
+      await cache.invalidate(CACHE_PREFIXES.MARKETPLACE_LISTINGS);
+      logInfo(undefined, '[cache] invalidated marketplace-listings after sold', {
         listingId,
       });
 
       // Invalidate marketplace stats as the set of active listings changed.
       await cache.delete(CacheKey.marketplaceStats());
-      logInfo(undefined, "[cache] invalidated marketplace-stats after sold", {
+      logInfo(undefined, '[cache] invalidated marketplace-stats after sold', {
         listingId,
       });
 
-      logInfo(undefined, "[MarketplaceService] Listing marked as sold", {
+      logInfo(undefined, '[MarketplaceService] Listing marked as sold', {
         listingId,
         buyerAddress,
       });

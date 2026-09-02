@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { notFound, useRouter } from 'next/navigation';
 import CommitmentDetailHeader from '@/components/Commitmentdetailheader';
 import CommitmentHealthMetrics from '@/components/dashboard/CommitmentHealthMetrics';
@@ -20,8 +20,6 @@ import { CommitmentStatusProvider, useCommitmentStatus } from '@/context/Commitm
 import { useShareLink } from '@/hooks/useShareLink';
 import { useToast } from '@/components/toast/ToastProvider';
 import { getAppExplorerNetwork } from './explorerNetwork';
-import { useRecentlyViewed, RECENTLY_VIEWED_COMMITMENTS_KEY } from '@/hooks/useRecentlyViewed';
-import { RecentlyViewedCommitmentsRail } from '@/components/RecentlyViewedCommitmentsRail';
 import { useRegisterCommands } from '@/components/CommandPalette';
 import { buildCommitmentScopedCommands } from '@/components/CommandPalette/scopedActions';
 import { useWallet } from '@/hooks/useWallet';
@@ -43,10 +41,7 @@ const STATUS_TRANSITION_DEBOUNCE_MS = 500;
 // Structured diagnostics (never leaks secrets)
 // ---------------------------------------------------------------------------
 
-function emitPageTelemetry(
-  event: string,
-  meta: Record<string, string | number | boolean> = {},
-) {
+function emitPageTelemetry(event: string, meta: Record<string, string | number | boolean> = {}) {
   if (typeof window === 'undefined') return;
   try {
     if (process.env.NODE_ENV !== 'production') {
@@ -230,6 +225,78 @@ function getCommitmentById(id: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Route-parameter validation & ownership helpers (exported for unit tests)
+// ---------------------------------------------------------------------------
+
+export type OwnershipState =
+  | { kind: 'wallet_disconnected' }
+  | { kind: 'wrong_network'; reason: string }
+  | { kind: 'not_owner' }
+  | { kind: 'authorized' };
+
+export function isValidCommitmentId(id: unknown): id is string {
+  if (typeof id !== 'string') return false;
+  if (id.length === 0 || id.length > 64) return false;
+  if (/[ /\\]/.test(id)) return false;
+  if (/\.\./.test(id)) return false;
+  if (/<[^>]*>/.test(id)) return false;
+  return true;
+}
+
+export function deriveOwnership(
+  wallet: { connected: boolean; address: string; error: string | null } | null,
+  ownerAddress: string,
+): OwnershipState {
+  if (!wallet?.connected || !wallet.address) {
+    return { kind: 'wallet_disconnected' };
+  }
+  if (wallet.error) {
+    return { kind: 'wrong_network', reason: wallet.error };
+  }
+  if (wallet.address !== ownerAddress) {
+    return { kind: 'not_owner' };
+  }
+  return { kind: 'authorized' };
+}
+
+export function isAuthorized(state: OwnershipState): boolean {
+  return state.kind === 'authorized';
+}
+
+export function ownershipDisabledReason(state: OwnershipState): string | undefined {
+  switch (state.kind) {
+    case 'wallet_disconnected':
+      return 'Please connect your wallet';
+    case 'wrong_network':
+      return state.reason;
+    case 'not_owner':
+      return 'Only the commitment owner can perform this action';
+    case 'authorized':
+      return undefined;
+  }
+}
+
+const KNOWN_STATUSES = new Set(['active', 'settled', 'violated', 'early_exit', 'disputed']);
+
+export function isKnownStatusValue(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  return KNOWN_STATUSES.has(value.toLowerCase());
+}
+
+export function isEligibleForEarlyExit(
+  status: { status?: string; daysRemaining?: number } | null | undefined,
+): boolean {
+  if (!status || typeof status !== 'object') return false;
+  if (typeof status.daysRemaining !== 'number' || !Number.isFinite(status.daysRemaining))
+    return false;
+  return (
+    status.daysRemaining > 0 &&
+    isKnownStatusValue(status.status) &&
+    status.status!.toLowerCase() === 'active'
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page component
 // ---------------------------------------------------------------------------
 
@@ -280,13 +347,6 @@ function CommitmentDetailPageContent({
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [earlyExitModalOpen, setEarlyExitModalOpen] = useState(false);
   const [disputeModalOpen, setDisputeModalOpen] = useState(false);
-
-  // Reentrancy guard: prevents a double-click / rapid repeat confirm from
-  // firing the same sensitive action twice while the first is still being
-  // processed. A ref (not state) is used deliberately so the check inside
-  // the handler always reads the latest value synchronously, rather than a
-  // value captured in a stale render closure.
-  const actionInFlightRef = useRef(false);
 
   const attestationsRef = useRef<HTMLDivElement>(null);
   const { success: showSuccess, error: showError } = useToast();
@@ -352,7 +412,8 @@ function CommitmentDetailPageContent({
       showError({
         title: 'Not authorized',
         description:
-          reportIssueDisabledReason ?? 'You are not authorized to file a dispute on this commitment.',
+          reportIssueDisabledReason ??
+          'You are not authorized to file a dispute on this commitment.',
       });
       return;
     }
@@ -474,9 +535,7 @@ function CommitmentDetailPageContent({
                 mintDate={MOCK_NFT_DATA.mintDate}
                 onCopyTokenId={() => handleCopy(MOCK_NFT_DATA.tokenId, 'Token ID')}
                 onCopyOwner={() => handleCopy(MOCK_NFT_DATA.ownerAddress, 'Owner Address')}
-                onCopyContract={() =>
-                  handleCopy(MOCK_NFT_DATA.contractAddress, 'Contract Address')
-                }
+                onCopyContract={() => handleCopy(MOCK_NFT_DATA.contractAddress, 'Contract Address')}
                 onViewDetails={handleViewDetails}
                 onViewOnExplorer={handleViewExplorer}
                 onTransfer={handleTransfer}
@@ -588,6 +647,10 @@ function CommitmentDetailActionsUsingContext({
   onReportIssue: () => void;
   onSettle?: (() => void) | undefined;
   commitmentId?: string | undefined;
+  canEarlyExit?: boolean;
+  earlyExitDisabledReason?: string;
+  settleDisabledReason?: string;
+  reportIssueDisabledReason?: string;
 }) {
   const { status } = useCommitmentStatus();
   const previewRefreshTrigger = status
@@ -603,6 +666,9 @@ function CommitmentDetailActionsUsingContext({
       onReportIssue={onReportIssue}
       {...(onSettle !== undefined ? { onSettle } : {})}
       {...(commitmentId !== undefined ? { commitmentId } : {})}
+      {...(earlyExitDisabledReason !== undefined ? { earlyExitDisabledReason } : {})}
+      {...(settleDisabledReason !== undefined ? { settleDisabledReason } : {})}
+      {...(reportIssueDisabledReason !== undefined ? { reportIssueDisabledReason } : {})}
       previewRefreshTrigger={previewRefreshTrigger}
     />
   );
